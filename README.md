@@ -2,7 +2,7 @@
 
 Personal daemons with memory, schedules, and shared threads across channels.
 
-Status: spec decided. Control plane, host, and the first conjured daemon run end to end; Telegram next.
+Status: spec decided. Control plane, host, one conjured daemon, and Telegram approvals and messages run end to end against a local dev server; MVP completion checks next.
 
 - `aether`: always-on control plane (REST, channels, scheduler, registry).
 - hosts: run daemon processes on real machines.
@@ -21,12 +21,14 @@ bin/aether serve   --db aether.db --listen :8080
 bin/aether connect --aether http://127.0.0.1:8080 --root ./daemons
 bin/aether conjure foo --host $(hostname)
 bin/aether tell foo remember to water the plants
+bin/aether tell foo run echo hi        # outside the allowlist: pauses for approval
+bin/aether approve <approval-id>       # or deny; Telegram buttons hit the same path
 curl -X PUT localhost:8080/v1/daemons/foo/schedules/morning-review \
   -H "Authorization: Bearer $AETHER_TOKEN" \
   -d '{"cron":"0 7 * * *","tz":"America/New_York","policy":"queue"}'
 ```
 
-`serve` opens the store, serves REST under `/v1`, connects to Inngest Cloud as app `aether`, registers `scheduler.tick`, and drains the outbox. `connect` registers this machine as a host, connects as `host-<name>`, scaffolds daemons on `daemon/conjure.requested`, and spawns the `run` command from each daemon's `aether.json` under `--root` with a scrubbed env plus `AETHER_URL`, `AETHER_TOKEN`, and the Inngest keys. `--sdk` is the `@aether/daemon` dependency written into scaffolds; the default `file:../../packages/daemon` fits `--root ./daemons` in this repo. A schedule PUT with no `thread` uses the daemon's default thread, the one `tell` writes to. Set `INNGEST_DEV=http://127.0.0.1:8288` on every process to run against a local dev server instead of Cloud.
+`serve` opens the store, serves REST under `/v1`, connects to Inngest Cloud as app `aether`, registers `scheduler.tick` plus the Telegram delivery functions, and drains the outbox. `--allowlist file.json` lists tool calls that run without approval, e.g. `{"rules":[{"tool":"shell","argv":["ls","..."]}]}` (`*` matches one argument, `...` the rest; path-like arguments must resolve inside the thread directory). Anything unmatched becomes an approval row. Telegram is on when `TELEGRAM_BOT_TOKEN` is set: approvals and replies for a bound chat are sent through the Bot API, and `POST /v1/channels/telegram/webhook`, authenticated only by `TELEGRAM_WEBHOOK_SECRET`, takes text (bound to the daemon's default thread on first contact, or `/start <daemon>` when several exist) and approve/deny buttons. `TELEGRAM_API_URL` points the client at a fake for local runs. `connect` registers this machine as a host, connects as `host-<name>`, scaffolds daemons on `daemon/conjure.requested`, and spawns the `run` command from each daemon's `aether.json` under `--root` with a scrubbed env plus `AETHER_URL`, `AETHER_TOKEN`, and the Inngest keys. `--sdk` is the `@aether/daemon` dependency written into scaffolds; the default `file:../../packages/daemon` fits `--root ./daemons` in this repo. A schedule PUT with no `thread` uses the daemon's default thread, the one `tell` writes to. Set `INNGEST_DEV=http://127.0.0.1:8288` on every process to run against a local dev server instead of Cloud.
 
 ## Progress
 
@@ -35,9 +37,20 @@ Following the order in the spec:
 1. Security gate: env scrub, resolved-path containment, fail-closed auth. Done.
 2. Control plane: SQLite with outbox, REST, schedule clock, Inngest publish and Connect, host supervisor. Done.
 3. `@aether/daemon` runtime, `conjure` and `tell`, one daemon, the morning review. Done.
-4. Telegram: approvals out, then messages in. Next.
-5. MVP completion checks: retry dedupe, approval recovery after restart, failure and stale-work markers.
+4. Telegram: approvals out, then messages in. Done.
+5. MVP completion checks: retry dedupe, approval recovery after restart, failure and stale-work markers. Next.
 
 Manual run, 2026-09-06, against a local Inngest dev server (Cloud keys were not on the build machine; the Cloud pass is still owed): `serve` and `connect --name devhost` connected as `aether` and `host-devhost`; `conjure foo --host devhost` scaffolded `daemons/foo`, ran `bun install` and `git init`, and `daemon-foo` connected with `turn`; `tell foo remember to water the plants` produced the assistant reply and memory v1; a `morning-review` schedule due the next minute fired through `scheduler.tick`, and the daemon replied with the review and wrote memory v2. Outbox rows all published, no markers written.
 
-Today the CLI has `serve`, `connect`, `conjure`, `tell`, and `version`. REST covers daemons, messages, thread replies, approval requests, markers, soul and memory, schedules, and hosts. The SDK connects over Inngest Connect, runs the turn behind steps (load, model, reply, memory), skips stale schedules with a marker, and ships a template model that is swappable through `defineDaemon({ model })`.
+Manual run, 2026-09-06, local Inngest dev server plus a fake Telegram Bot API (a bun server recording every `sendMessage`): `serve --allowlist` (rule: `shell ls ...`) and `connect --name devhost` came up with `aether` registering `scheduler.tick`, `telegram-approval`, and `telegram-reply`; `conjure foo` scaffolded and `daemon-foo` connected with `turn`. A webhook text `hello` from chat 42 bound the chat to foo's default thread and the reply reached the fake chat; `run echo approved-run` paused the turn (`turn.paused` marker, one `daemon/approval.requested`), and the approval landed in the fake chat with Approve/Deny buttons. Answering through the webhook callback recorded one decision (a replayed `update_id` and a later deny were ignored), the daemon claimed one `tool.call` operation, ran the command once, and the output reached both the thread and the chat. Then `run echo after-restart` was left pending while `serve` and `connect` were stopped and restarted; approving after the restart ran it once with the same result. `tell foo run ls` ran without an approval row. Every outbox row published, no failure markers.
+
+Today the CLI has `serve`, `connect`, `conjure`, `tell`, `approve`, `deny`, and `version`. REST covers daemons, messages, thread replies, approval requests and answers, allowlist matching, operation claims, markers, soul and memory, schedules, hosts, and the Telegram webhook. The SDK connects over Inngest Connect, runs the turn behind steps (load, model, tool calls, reply, memory), pauses unmatched tool calls behind an approval row and resumes on `aether/approval.answered`, ships a `shell` tool that runs with a scrubbed env inside the thread directory, skips stale schedules with a marker, and takes a swappable model and tools through `defineDaemon({ model, tools })`.
+
+## Going live
+
+Still owed: the Inngest Cloud pass from step 3 (dev server only so far), now covering the Telegram functions too.
+
+- `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` on `serve`, `connect`, and every daemon; drop `INNGEST_DEV`.
+- `TELEGRAM_BOT_TOKEN` from @BotFather and a random `TELEGRAM_WEBHOOK_SECRET` on `serve`.
+- Point Telegram at aether over HTTPS: `curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" -d url=https://<aether>/v1/channels/telegram/webhook -d secret_token=$TELEGRAM_WEBHOOK_SECRET`.
+- Message the bot once (`/start <daemon>` if more than one) to bind the chat.
