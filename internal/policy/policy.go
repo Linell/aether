@@ -5,20 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 var DefaultEnvAllow = []string{"PATH", "HOME", "LANG", "TERM", "TZ"}
 
 func ScrubEnv(env []string, allow []string) []string {
-	allowed := make(map[string]struct{}, len(allow))
-	for _, name := range allow {
-		allowed[name] = struct{}{}
-	}
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		name, _, ok := strings.Cut(kv, "=")
-		if _, keep := allowed[name]; ok && keep {
+		if ok && slices.Contains(allow, name) {
 			out = append(out, kv)
 		}
 	}

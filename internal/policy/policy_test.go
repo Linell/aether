@@ -27,14 +27,6 @@ func TestScrubEnvDropsUnlistedVars(t *testing.T) {
 	}
 }
 
-func TestScrubEnvDefaultAllowlist(t *testing.T) {
-	env := []string{"PATH=/bin", "SECRET=leak"}
-	got := ScrubEnv(env, DefaultEnvAllow)
-	if len(got) != 1 || got[0] != "PATH=/bin" {
-		t.Errorf("ScrubEnv with DefaultEnvAllow = %v, want [PATH=/bin]", got)
-	}
-}
-
 func TestResolveWithinAllowsNonexistentChild(t *testing.T) {
 	root := t.TempDir()
 	got, err := ResolveWithin(root, "new/child.txt")

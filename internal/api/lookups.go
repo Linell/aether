@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/linell/aether/internal/store"
 )
 
 var (
@@ -11,57 +13,41 @@ var (
 	errNotAnchored = errors.New("daemon is not anchored")
 )
 
-type queryer interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+func lookup(ctx context.Context, q store.DBTX, query string, arg any, dest ...any) error {
+	err := q.QueryRowContext(ctx, query, arg).Scan(dest...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errNotFound
+	}
+	return err
 }
 
-func daemonIDByName(ctx context.Context, q queryer, name string) (string, error) {
+func daemonIDByName(ctx context.Context, q store.DBTX, name string) (string, error) {
 	var id string
-	err := q.QueryRowContext(ctx, `SELECT id FROM daemons WHERE name = ?`, name).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", errNotFound
-	}
+	err := lookup(ctx, q, `SELECT id FROM daemons WHERE name = ?`, name, &id)
 	return id, err
 }
 
-func daemonIDAndClass(ctx context.Context, q queryer, name string) (string, string, error) {
+func anchoredDaemonID(ctx context.Context, q store.DBTX, name string) (string, error) {
 	var id, class string
-	err := q.QueryRowContext(ctx, `SELECT id, class FROM daemons WHERE name = ?`, name).Scan(&id, &class)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", errNotFound
+	if err := lookup(ctx, q, `SELECT id, class FROM daemons WHERE name = ?`, name, &id, &class); err != nil {
+		return "", err
 	}
-	return id, class, err
+	if class != "anchored" {
+		return "", errNotAnchored
+	}
+	return id, nil
 }
 
-func threadDaemonName(ctx context.Context, q queryer, threadID string) (string, error) {
+func threadDaemonName(ctx context.Context, q store.DBTX, threadID string) (string, error) {
 	var name string
-	err := q.QueryRowContext(ctx,
+	err := lookup(ctx, q,
 		`SELECT daemons.name FROM threads JOIN daemons ON daemons.id = threads.daemon_id WHERE threads.id = ?`,
-		threadID,
-	).Scan(&name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", errNotFound
-	}
+		threadID, &name)
 	return name, err
 }
 
-func hostIDByName(ctx context.Context, q queryer, name string) (string, error) {
+func hostIDByName(ctx context.Context, q store.DBTX, name string) (string, error) {
 	var id string
-	err := q.QueryRowContext(ctx, `SELECT id FROM hosts WHERE name = ?`, name).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", errNotFound
-	}
+	err := lookup(ctx, q, `SELECT id FROM hosts WHERE name = ?`, name, &id)
 	return id, err
-}
-
-func scheduleOwner(ctx context.Context, q queryer, id string) (string, bool, error) {
-	var owner string
-	err := q.QueryRowContext(ctx, `SELECT daemon_id FROM schedules WHERE id = ?`, id).Scan(&owner)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return owner, true, nil
 }

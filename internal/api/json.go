@@ -17,11 +17,23 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func decodeJSON(r *http.Request, v any) error {
-	return json.NewDecoder(r.Body).Decode(v)
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return false
+	}
+	return true
 }
 
-func writeTxErr(w http.ResponseWriter, err error) {
+func respond(w http.ResponseWriter, status int, v any, err error) {
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, status, v)
+}
+
+func writeErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errNotFound):
 		writeError(w, http.StatusNotFound, "not found")

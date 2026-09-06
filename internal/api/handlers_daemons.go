@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 
@@ -17,33 +16,21 @@ type versionedDoc struct {
 func (s *server) handleGetSoul(w http.ResponseWriter, r *http.Request) {
 	daemonID, err := daemonIDByName(r.Context(), s.store.DB(), r.PathValue("name"))
 	if err != nil {
-		writeTxErr(w, err)
+		writeErr(w, err)
 		return
 	}
-	doc, err := latestSoul(r.Context(), s.store.DB(), daemonID)
-	if err != nil {
-		writeTxErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, doc)
+	doc, err := latestDoc(r.Context(), s.store.DB(), "souls", daemonID)
+	respond(w, http.StatusOK, doc, err)
 }
 
 func (s *server) handleGetMemory(w http.ResponseWriter, r *http.Request) {
 	daemonID, err := daemonIDByName(r.Context(), s.store.DB(), r.PathValue("name"))
 	if err != nil {
-		writeTxErr(w, err)
+		writeErr(w, err)
 		return
 	}
-	doc, err := latestMemory(r.Context(), s.store.DB(), daemonID)
-	if errors.Is(err, errNotFound) {
-		writeJSON(w, http.StatusOK, versionedDoc{})
-		return
-	}
-	if err != nil {
-		writeTxErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, doc)
+	doc, err := currentMemory(r.Context(), s.store.DB(), daemonID)
+	respond(w, http.StatusOK, doc, err)
 }
 
 type putMemoryBody struct {
@@ -53,33 +40,27 @@ type putMemoryBody struct {
 
 func (s *server) handlePutMemory(w http.ResponseWriter, r *http.Request) {
 	var body putMemoryBody
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeBody(w, r, &body) {
 		return
 	}
-
 	doc, conflict, err := s.putMemory(r.Context(), r.PathValue("name"), body)
-	if err != nil {
-		writeTxErr(w, err)
-		return
-	}
 	if conflict {
 		writeJSON(w, http.StatusConflict, doc)
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	respond(w, http.StatusOK, doc, err)
 }
 
 func (s *server) putMemory(ctx context.Context, name string, body putMemoryBody) (versionedDoc, bool, error) {
 	var doc versionedDoc
 	conflict := false
-	err := s.store.Tx(ctx, func(tx *sql.Tx) error {
+	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemonID, err := daemonIDByName(ctx, tx, name)
 		if err != nil {
 			return err
 		}
-		current, err := latestMemory(ctx, tx, daemonID)
-		if err != nil && !errors.Is(err, errNotFound) {
+		current, err := currentMemory(ctx, tx, daemonID)
+		if err != nil {
 			return err
 		}
 		if current.Version != body.ExpectedVersion {
@@ -96,23 +77,18 @@ func (s *server) putMemory(ctx context.Context, name string, body putMemoryBody)
 	return doc, conflict, err
 }
 
-func latestSoul(ctx context.Context, q queryer, daemonID string) (versionedDoc, error) {
-	return scanLatestDoc(q.QueryRowContext(ctx,
-		`SELECT body, version FROM souls WHERE daemon_id = ? ORDER BY version DESC LIMIT 1`, daemonID))
-}
-
-func latestMemory(ctx context.Context, q queryer, daemonID string) (versionedDoc, error) {
-	return scanLatestDoc(q.QueryRowContext(ctx,
-		`SELECT body, version FROM memory WHERE daemon_id = ? ORDER BY version DESC LIMIT 1`, daemonID))
-}
-
-func scanLatestDoc(row *sql.Row) (versionedDoc, error) {
-	var doc versionedDoc
-	if err := row.Scan(&doc.Content, &doc.Version); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return versionedDoc{}, errNotFound
-		}
-		return versionedDoc{}, err
+func currentMemory(ctx context.Context, q store.DBTX, daemonID string) (versionedDoc, error) {
+	doc, err := latestDoc(ctx, q, "memory", daemonID)
+	if errors.Is(err, errNotFound) {
+		return versionedDoc{}, nil
 	}
-	return doc, nil
+	return doc, err
+}
+
+func latestDoc(ctx context.Context, q store.DBTX, table, daemonID string) (versionedDoc, error) {
+	var doc versionedDoc
+	err := lookup(ctx, q,
+		`SELECT body, version FROM `+table+` WHERE daemon_id = ? ORDER BY version DESC LIMIT 1`,
+		daemonID, &doc.Content, &doc.Version)
+	return doc, err
 }

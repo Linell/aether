@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -18,15 +17,25 @@ type Supervisor struct {
 	reg     Registry
 	mu      sync.Mutex
 	running map[string]*exec.Cmd
-	logger  *log.Logger
 }
 
 func New(root string, reg Registry) *Supervisor {
-	return &Supervisor{
-		root:    root,
-		reg:     reg,
-		running: make(map[string]*exec.Cmd),
-		logger:  log.New(os.Stderr, "", log.LstdFlags),
+	return &Supervisor{root: root, reg: reg, running: make(map[string]*exec.Cmd)}
+}
+
+func (s *Supervisor) Run(ctx context.Context, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := s.Reconcile(ctx); err != nil {
+			log.Printf("host: reconcile: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			s.Stop()
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -47,12 +56,12 @@ func (s *Supervisor) reconcileOne(ctx context.Context, name string) {
 	}
 	dir, err := policy.ResolveWithin(s.root, name)
 	if err != nil {
-		s.logger.Printf("host: %s: resolve dir: %v", name, err)
+		log.Printf("host: %s: resolve dir: %v", name, err)
 		return
 	}
 	m, err := ReadManifest(dir)
 	if err != nil {
-		s.logger.Printf("host: %s: read manifest: %v", name, err)
+		log.Printf("host: %s: read manifest: %v", name, err)
 		return
 	}
 	s.spawn(ctx, name, dir, m)
@@ -68,19 +77,16 @@ func (s *Supervisor) isRunning(name string) bool {
 func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if _, ok := s.running[name]; ok {
 		return
 	}
-
 	cmd := exec.CommandContext(ctx, "sh", "-c", m.Run)
 	cmd.Dir = dir
 	cmd.Env = policy.ScrubEnv(os.Environ(), policy.DefaultEnvAllow)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
 	if err := cmd.Start(); err != nil {
-		s.logger.Printf("host: %s: start: %v", name, err)
+		log.Printf("host: %s: start: %v", name, err)
 		return
 	}
 	s.running[name] = cmd
@@ -88,9 +94,7 @@ func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 }
 
 func (s *Supervisor) awaitExit(name string, cmd *exec.Cmd) {
-	err := cmd.Wait()
-	s.logger.Printf("host: %s: exited: %v", name, err)
-
+	log.Printf("host: %s: exited: %v", name, cmd.Wait())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running[name] == cmd {
@@ -98,47 +102,12 @@ func (s *Supervisor) awaitExit(name string, cmd *exec.Cmd) {
 	}
 }
 
-func (s *Supervisor) Run(ctx context.Context, interval time.Duration) error {
-	if err := s.Reconcile(ctx); err != nil {
-		s.logger.Printf("host: reconcile: %v", err)
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.Stop()
-			return ctx.Err()
-		case <-ticker.C:
-			if err := s.Reconcile(ctx); err != nil {
-				s.logger.Printf("host: reconcile: %v", err)
-			}
-		}
-	}
-}
-
 func (s *Supervisor) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for name, cmd := range s.running {
-		if cmd.Process == nil {
-			continue
-		}
 		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			s.logger.Printf("host: %s: signal: %v", name, err)
+			log.Printf("host: %s: signal: %v", name, err)
 		}
 	}
-}
-
-func (s *Supervisor) Running() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	names := make([]string, 0, len(s.running))
-	for name := range s.running {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

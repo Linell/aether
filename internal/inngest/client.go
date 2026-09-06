@@ -26,16 +26,12 @@ type Options struct {
 	EventAPIURL string
 }
 
-func OptionsFromEnv(appID string) (Options, error) {
-	o := Options{
+func OptionsFromEnv(appID string) Options {
+	return Options{
 		AppID:      appID,
 		EventKey:   os.Getenv("INNGEST_EVENT_KEY"),
 		SigningKey: os.Getenv("INNGEST_SIGNING_KEY"),
 	}
-	if o.EventKey == "" || o.SigningKey == "" {
-		return Options{}, ErrMissingCredentials
-	}
-	return o, nil
 }
 
 func New(o Options) (*Client, error) {
@@ -60,8 +56,6 @@ func clientOpts(o Options) inngestgo.ClientOpts {
 	}
 	return opts
 }
-
-func (c *Client) Inner() inngestgo.Client { return c.inner }
 
 func (c *Client) Publish(ctx context.Context, id, name string, payload json.RawMessage) error {
 	var data map[string]any

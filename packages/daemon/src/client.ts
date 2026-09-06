@@ -1,4 +1,3 @@
-
 import type { ToolCall } from "./contract";
 
 export interface VersionedDocument {
@@ -42,15 +41,6 @@ export interface AetherClient {
   deleteSchedule(daemon: string, id: string): Promise<void>;
 }
 
-const routes = {
-  reply: (thread: string) => `/v1/threads/${thread}/reply`,
-  approval: (thread: string) => `/v1/threads/${thread}/approvals`,
-  soul: (daemon: string) => `/v1/daemons/${daemon}/soul`,
-  memory: (daemon: string) => `/v1/daemons/${daemon}/memory`,
-  schedules: (daemon: string) => `/v1/daemons/${daemon}/schedules`,
-  schedule: (daemon: string, id: string) => `/v1/daemons/${daemon}/schedules/${id}`,
-} as const;
-
 export interface CreateClientOptions {
   baseUrl: string;
   token: string;
@@ -62,7 +52,7 @@ export function createClient(options: CreateClientOptions): AetherClient {
   const doFetch = options.fetch ?? fetch;
 
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await doFetch(`${baseUrl}${path}`, {
+    const res = await doFetch(`${baseUrl}/v1${path}`, {
       method,
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -74,38 +64,17 @@ export function createClient(options: CreateClientOptions): AetherClient {
 
   return {
     async reply(thread, text) {
-      await request<void>("POST", routes.reply(thread), { text });
+      await request("POST", `/threads/${thread}/reply`, { text });
     },
-
-    async requestApproval(thread, calls) {
-      return request<{ approval: string }>("POST", routes.approval(thread), { calls });
-    },
-
-    async getSoul(daemon) {
-      return request<VersionedDocument>("GET", routes.soul(daemon));
-    },
-
-    async getMemory(daemon) {
-      return request<VersionedDocument>("GET", routes.memory(daemon));
-    },
-
-    async putMemory(daemon, body, expectedVersion) {
-      return request<VersionedDocument>("PUT", routes.memory(daemon), {
-        content: body,
-        expected_version: expectedVersion,
-      });
-    },
-
-    async listSchedules(daemon) {
-      return request<Schedule[]>("GET", routes.schedules(daemon));
-    },
-
-    async putSchedule(daemon, id, schedule) {
-      return request<Schedule>("PUT", routes.schedule(daemon, id), schedule);
-    },
-
+    requestApproval: (thread, calls) => request("POST", `/threads/${thread}/approvals`, { calls }),
+    getSoul: (daemon) => request("GET", `/daemons/${daemon}/soul`),
+    getMemory: (daemon) => request("GET", `/daemons/${daemon}/memory`),
+    putMemory: (daemon, body, expectedVersion) =>
+      request("PUT", `/daemons/${daemon}/memory`, { content: body, expected_version: expectedVersion }),
+    listSchedules: (daemon) => request("GET", `/daemons/${daemon}/schedules`),
+    putSchedule: (daemon, id, schedule) => request("PUT", `/daemons/${daemon}/schedules/${id}`, schedule),
     async deleteSchedule(daemon, id) {
-      await request<void>("DELETE", routes.schedule(daemon, id));
+      await request("DELETE", `/daemons/${daemon}/schedules/${id}`);
     },
   };
 }

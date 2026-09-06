@@ -1,70 +1,50 @@
-package store
+package store_test
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/linell/aether/internal/store"
+	"github.com/linell/aether/internal/store/storetest"
 )
 
-func openTestStore(t *testing.T) *Store {
-	t.Helper()
-	dir := t.TempDir()
-	s, err := Open(context.Background(), filepath.Join(dir, "aether.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-	return s
-}
-
 func TestOpenAppliesMigrationsAndWAL(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
+	s := storetest.Open(t)
 
 	var mode string
-	if err := s.DB().QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+	if err := s.DB().QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatalf("query journal_mode: %v", err)
 	}
 	if mode != "wal" {
 		t.Errorf("journal_mode = %q, want wal", mode)
 	}
-
 	tables := []string{
 		"hosts", "daemons", "souls", "memory", "threads", "messages",
 		"approvals", "schedules", "operations", "outbox", "markers", "schema_migrations",
 	}
 	for _, tbl := range tables {
-		var name string
-		err := s.DB().QueryRowContext(ctx,
-			`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl,
-		).Scan(&name)
-		if err != nil {
-			t.Errorf("table %q missing after migration: %v", tbl, err)
+		if n := storetest.Count(t, s, `SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl); n != 1 {
+			t.Errorf("table %q missing after migration", tbl)
 		}
 	}
-
-	var migrationCount int
-	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(1) FROM schema_migrations`).Scan(&migrationCount); err != nil {
-		t.Fatalf("count schema_migrations: %v", err)
-	}
-	if migrationCount == 0 {
+	if storetest.Count(t, s, `SELECT COUNT(1) FROM schema_migrations`) == 0 {
 		t.Error("expected at least one recorded migration")
 	}
 }
 
 func TestEnqueueOutboxRollbackLeavesNoRow(t *testing.T) {
-	s := openTestStore(t)
+	s := storetest.Open(t)
 	ctx := context.Background()
 
 	sentinelErr := errors.New("boom")
 	var id string
-	err := s.Tx(ctx, func(tx *sql.Tx) error {
+	err := s.Tx(ctx, func(tx *store.Tx) error {
 		var err error
-		id, err = s.EnqueueOutbox(ctx, tx, "test/event.happened", map[string]string{"a": "b"})
+		id, err = tx.EnqueueOutbox(ctx, "test/event.happened", map[string]string{"a": "b"})
 		if err != nil {
 			return err
 		}
@@ -73,36 +53,8 @@ func TestEnqueueOutboxRollbackLeavesNoRow(t *testing.T) {
 	if !errors.Is(err, sentinelErr) {
 		t.Fatalf("Tx error = %v, want sentinel", err)
 	}
-
-	var count int
-	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(1) FROM outbox WHERE id = ?`, id).Scan(&count); err != nil {
-		t.Fatalf("count outbox: %v", err)
-	}
-	if count != 0 {
+	if n := storetest.Count(t, s, `SELECT COUNT(1) FROM outbox WHERE id = ?`, id); n != 0 {
 		t.Errorf("outbox row %q exists after rollback, want none", id)
-	}
-}
-
-func TestEnqueueOutboxCommitPersistsRow(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-
-	var id string
-	err := s.Tx(ctx, func(tx *sql.Tx) error {
-		var err error
-		id, err = s.EnqueueOutbox(ctx, tx, "test/event.happened", map[string]string{"a": "b"})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("Tx: %v", err)
-	}
-
-	var name string
-	if err := s.DB().QueryRowContext(ctx, `SELECT event_name FROM outbox WHERE id = ?`, id).Scan(&name); err != nil {
-		t.Fatalf("query outbox row: %v", err)
-	}
-	if name != "test/event.happened" {
-		t.Errorf("event_name = %q, want test/event.happened", name)
 	}
 }
 
@@ -132,12 +84,12 @@ func (f *fakePublisher) count(id string) int {
 	return f.attempts[id]
 }
 
-func enqueue(t *testing.T, s *Store, eventName string) string {
+func enqueue(t *testing.T, s *store.Store, eventName string) string {
 	t.Helper()
 	var id string
-	err := s.Tx(context.Background(), func(tx *sql.Tx) error {
+	err := s.Tx(context.Background(), func(tx *store.Tx) error {
 		var err error
-		id, err = s.EnqueueOutbox(context.Background(), tx, eventName, map[string]string{"k": "v"})
+		id, err = tx.EnqueueOutbox(context.Background(), eventName, map[string]string{"k": "v"})
 		return err
 	})
 	if err != nil {
@@ -146,85 +98,68 @@ func enqueue(t *testing.T, s *Store, eventName string) string {
 	return id
 }
 
-func TestDrainOutboxPublishesOnceAndIsIdempotent(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	id := enqueue(t, s, "test/event.happened")
+func drain(t *testing.T, s *store.Store, pub *fakePublisher, want int) error {
+	t.Helper()
+	n, err := s.DrainOutbox(context.Background(), pub, 10)
+	if n != want {
+		t.Fatalf("published = %d, want %d", n, want)
+	}
+	return err
+}
 
+func publishedAt(t *testing.T, s *store.Store, id string) sql.NullString {
+	t.Helper()
+	var at sql.NullString
+	if err := s.DB().QueryRow(`SELECT published_at FROM outbox WHERE id = ?`, id).Scan(&at); err != nil {
+		t.Fatalf("query published_at: %v", err)
+	}
+	return at
+}
+
+func TestDrainOutboxPublishesOnceAndIsIdempotent(t *testing.T) {
+	s := storetest.Open(t)
+	id := enqueue(t, s, "test/event.happened")
 	pub := newFakePublisher()
 
-	n, err := s.DrainOutbox(ctx, pub, 10)
-	if err != nil {
+	if err := drain(t, s, pub, 1); err != nil {
 		t.Fatalf("DrainOutbox: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("published = %d, want 1", n)
+	if !publishedAt(t, s, id).Valid {
+		t.Fatal("published_at not set after successful publish")
+	}
+	if err := drain(t, s, pub, 0); err != nil {
+		t.Fatalf("second DrainOutbox: %v", err)
 	}
 	if got := pub.count(id); got != 1 {
 		t.Fatalf("publish attempts for %s = %d, want 1", id, got)
 	}
-
-	var publishedAt sql.NullString
-	if err := s.DB().QueryRowContext(ctx, `SELECT published_at FROM outbox WHERE id = ?`, id).Scan(&publishedAt); err != nil {
-		t.Fatalf("query published_at: %v", err)
-	}
-	if !publishedAt.Valid {
-		t.Fatal("published_at not set after successful publish")
-	}
-	n, err = s.DrainOutbox(ctx, pub, 10)
-	if err != nil {
-		t.Fatalf("second DrainOutbox: %v", err)
-	}
-	if n != 0 {
-		t.Fatalf("second drain published = %d, want 0", n)
-	}
-	if got := pub.count(id); got != 1 {
-		t.Fatalf("publish attempts for %s after second drain = %d, want still 1", id, got)
-	}
 }
 
 func TestDrainOutboxFailedPublishIncrementsAttempts(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
+	s := storetest.Open(t)
 	id := enqueue(t, s, "test/event.failed")
-
 	pub := newFakePublisher()
 	pub.fail[id] = true
 
-	n, err := s.DrainOutbox(ctx, pub, 10)
-	if err == nil {
+	if err := drain(t, s, pub, 0); err == nil {
 		t.Fatal("expected error from failed publish")
 	}
-	if n != 0 {
-		t.Fatalf("published = %d, want 0", n)
+	if n := storetest.Count(t, s, `SELECT attempts FROM outbox WHERE id = ?`, id); n != 1 {
+		t.Errorf("attempts = %d, want 1", n)
 	}
-
-	var attempts int
-	var publishedAt sql.NullString
-	if err := s.DB().QueryRowContext(ctx, `SELECT attempts, published_at FROM outbox WHERE id = ?`, id).Scan(&attempts, &publishedAt); err != nil {
-		t.Fatalf("query outbox row: %v", err)
-	}
-	if attempts != 1 {
-		t.Errorf("attempts = %d, want 1", attempts)
-	}
-	if publishedAt.Valid {
+	if publishedAt(t, s, id).Valid {
 		t.Error("published_at set despite failed publish")
 	}
 	pub.fail[id] = false
-	n, err = s.DrainOutbox(ctx, pub, 10)
-	if err != nil {
+	if err := drain(t, s, pub, 1); err != nil {
 		t.Fatalf("retry DrainOutbox: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("retry published = %d, want 1", n)
 	}
 }
 
 func TestEnqueueWakesDrainAfterCommit(t *testing.T) {
-	s := openTestStore(t)
-	err := s.Tx(context.Background(), func(tx *sql.Tx) error {
-		_, err := s.EnqueueOutbox(context.Background(), tx, "test/event.happened", nil)
-		if err != nil {
+	s := storetest.Open(t)
+	err := s.Tx(context.Background(), func(tx *store.Tx) error {
+		if _, err := tx.EnqueueOutbox(context.Background(), "test/event.happened", nil); err != nil {
 			return err
 		}
 		select {

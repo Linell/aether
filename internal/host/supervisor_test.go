@@ -55,10 +55,6 @@ func TestReconcileSpawnsExactlyOnce(t *testing.T) {
 		t.Error("second Reconcile spawned a new process instead of reusing the running one")
 	}
 
-	if got := sup.Running(); len(got) != 1 || got[0] != "foo" {
-		t.Errorf("Running() = %v, want [foo]", got)
-	}
-
 	sup.Stop()
 }
 

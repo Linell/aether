@@ -29,59 +29,42 @@ type row struct {
 }
 
 func Tick(ctx context.Context, st *store.Store, now time.Time) (Result, error) {
-	rows, err := dueRows(ctx, st, now)
-	if err != nil {
-		return Result{}, err
-	}
-	var res Result
-	var errs []error
-	for _, r := range rows {
-		errs = append(errs, st.Tx(ctx, func(tx *sql.Tx) error {
-			return handle(ctx, st, tx, r, now, &res)
-		}))
-	}
-	return res, errors.Join(errs...)
-}
-
-func dueRows(ctx context.Context, st *store.Store, now time.Time) ([]row, error) {
-	rows, err := st.DB().QueryContext(ctx,
+	rows, err := store.Query(ctx, st.DB(), scanRow,
 		`SELECT s.id, s.daemon_id, d.name, s.thread_id, s.cron, s.tz, s.offline_policy, s.ttl_seconds, s.next_run_at
 		 FROM schedules s JOIN daemons d ON d.id = s.daemon_id
 		 WHERE s.enabled = 1 AND s.next_run_at <= ?
 		 ORDER BY s.next_run_at, s.id`, store.FormatTime(now))
 	if err != nil {
-		return nil, fmt.Errorf("scheduler: query due: %w", err)
+		return Result{}, fmt.Errorf("scheduler: query due: %w", err)
 	}
-	defer rows.Close()
-	var out []row
-	for rows.Next() {
-		r, err := scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
+	var res Result
+	var errs []error
+	for _, r := range rows {
+		errs = append(errs, st.Tx(ctx, func(tx *store.Tx) error {
+			return handle(ctx, tx, r, now, &res)
+		}))
 	}
-	return out, rows.Err()
+	return res, errors.Join(errs...)
 }
 
 func scanRow(rows *sql.Rows) (row, error) {
 	var r row
 	var due string
 	if err := rows.Scan(&r.id, &r.daemonID, &r.daemon, &r.thread, &r.cron, &r.tz, &r.policy, &r.ttl, &due); err != nil {
-		return row{}, fmt.Errorf("scheduler: scan: %w", err)
+		return row{}, err
 	}
 	t, err := store.ParseTime(due)
 	if err != nil {
-		return row{}, fmt.Errorf("scheduler: parse next_run_at for %s: %w", r.id, err)
+		return row{}, fmt.Errorf("parse next_run_at for %s: %w", r.id, err)
 	}
 	r.due = t
 	return r, nil
 }
 
-func handle(ctx context.Context, st *store.Store, tx *sql.Tx, r row, now time.Time, res *Result) error {
-	sched, err := parse(r)
+func handle(ctx context.Context, tx *store.Tx, r row, now time.Time, res *Result) error {
+	sched, err := Parse(r.cron, r.tz)
 	if err != nil {
-		return err
+		return fmt.Errorf("scheduler: %s: %w", r.id, err)
 	}
 	advanced, err := advance(ctx, tx, r, sched.Next(now))
 	if err != nil || !advanced {
@@ -93,15 +76,7 @@ func handle(ctx context.Context, st *store.Store, tx *sql.Tx, r row, now time.Ti
 		return markSkipped(ctx, tx, r, deadline)
 	}
 	res.Fired++
-	return fire(ctx, st, tx, r, deadline)
-}
-
-func parse(r row) (cron.Schedule, error) {
-	sched, err := Parse(r.cron, r.tz)
-	if err != nil {
-		return nil, fmt.Errorf("scheduler: %s: %w", r.id, err)
-	}
-	return sched, nil
+	return fire(ctx, tx, r, deadline)
 }
 
 func Parse(expr, tz string) (cron.Schedule, error) {
@@ -123,7 +98,7 @@ type inLocation struct {
 
 func (s inLocation) Next(t time.Time) time.Time { return s.Schedule.Next(t.In(s.loc)).UTC() }
 
-func advance(ctx context.Context, tx *sql.Tx, r row, next time.Time) (bool, error) {
+func advance(ctx context.Context, tx *store.Tx, r row, next time.Time) (bool, error) {
 	out, err := tx.ExecContext(ctx,
 		`UPDATE schedules SET next_run_at = ? WHERE id = ? AND next_run_at = ?`,
 		store.FormatTime(next), r.id, store.FormatTime(r.due))
@@ -145,8 +120,8 @@ func deadlineFor(r row, sched cron.Schedule) time.Time {
 	}
 }
 
-func fire(ctx context.Context, st *store.Store, tx *sql.Tx, r row, deadline time.Time) error {
-	_, err := st.EnqueueOutbox(ctx, tx, contract.EventScheduleFired, contract.ScheduleFiredPayload{
+func fire(ctx context.Context, tx *store.Tx, r row, deadline time.Time) error {
+	_, err := tx.EnqueueOutbox(ctx, contract.EventScheduleFired, contract.ScheduleFiredPayload{
 		Daemon:     r.daemon,
 		Thread:     r.thread,
 		Schedule:   r.id,
@@ -156,7 +131,7 @@ func fire(ctx context.Context, st *store.Store, tx *sql.Tx, r row, deadline time
 	return err
 }
 
-func markSkipped(ctx context.Context, tx *sql.Tx, r row, deadline time.Time) error {
+func markSkipped(ctx context.Context, tx *store.Tx, r row, deadline time.Time) error {
 	detail := fmt.Sprintf(`{"policy":%q,"due_at":%q,"deadline_at":%q}`,
 		r.policy, store.FormatTime(r.due), store.FormatTime(deadline))
 	_, err := tx.ExecContext(ctx,

@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 
 	"github.com/linell/aether/internal/contract"
@@ -11,26 +9,19 @@ import (
 )
 
 func (s *server) handleThreadReply(w http.ResponseWriter, r *http.Request) {
-	threadID := r.PathValue("id")
 	var body struct {
 		Text string `json:"text"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body")
+	if !decodeBody(w, r, &body) {
 		return
 	}
-
-	replyID, err := s.insertReply(r.Context(), threadID, body.Text)
-	if err != nil {
-		writeTxErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"reply": replyID})
+	replyID, err := s.insertReply(r.Context(), r.PathValue("id"), body.Text)
+	respond(w, http.StatusOK, map[string]string{"reply": replyID}, err)
 }
 
 func (s *server) insertReply(ctx context.Context, threadID, text string) (string, error) {
 	replyID := store.NewID()
-	err := s.store.Tx(ctx, func(tx *sql.Tx) error {
+	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemon, err := threadDaemonName(ctx, tx, threadID)
 		if err != nil {
 			return err
@@ -41,7 +32,7 @@ func (s *server) insertReply(ctx context.Context, threadID, text string) (string
 		); err != nil {
 			return err
 		}
-		_, err = s.store.EnqueueOutbox(ctx, tx, contract.EventMessageReplied, contract.MessageRepliedPayload{
+		_, err = tx.EnqueueOutbox(ctx, contract.EventMessageReplied, contract.MessageRepliedPayload{
 			Daemon: daemon,
 			Thread: threadID,
 			Reply:  replyID,
@@ -53,37 +44,27 @@ func (s *server) insertReply(ctx context.Context, threadID, text string) (string
 }
 
 func (s *server) handleThreadApprovals(w http.ResponseWriter, r *http.Request) {
-	threadID := r.PathValue("id")
-	calls, err := decodeApprovalCalls(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	var body struct {
+		Calls []contract.Call `json:"calls"`
+	}
+	if !decodeBody(w, r, &body) {
 		return
 	}
-
-	ids, err := s.createApprovals(r.Context(), threadID, calls)
+	if len(body.Calls) == 0 {
+		writeError(w, http.StatusBadRequest, "calls must not be empty")
+		return
+	}
+	ids, err := s.createApprovals(r.Context(), r.PathValue("id"), body.Calls)
 	if err != nil {
-		writeTxErr(w, err)
+		writeErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"approval": ids[0], "approvals": ids})
 }
 
-func decodeApprovalCalls(r *http.Request) ([]contract.Call, error) {
-	var body struct {
-		Calls []contract.Call `json:"calls"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		return nil, errors.New("invalid body")
-	}
-	if len(body.Calls) == 0 {
-		return nil, errors.New("calls must not be empty")
-	}
-	return body.Calls, nil
-}
-
 func (s *server) createApprovals(ctx context.Context, threadID string, calls []contract.Call) ([]string, error) {
 	var ids []string
-	err := s.store.Tx(ctx, func(tx *sql.Tx) error {
+	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemon, err := threadDaemonName(ctx, tx, threadID)
 		if err != nil {
 			return err
@@ -92,7 +73,7 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 		if err != nil {
 			return err
 		}
-		_, err = s.store.EnqueueOutbox(ctx, tx, contract.EventApprovalRequested, contract.ApprovalRequestedPayload{
+		_, err = tx.EnqueueOutbox(ctx, contract.EventApprovalRequested, contract.ApprovalRequestedPayload{
 			Daemon: daemon,
 			Thread: threadID,
 			Calls:  calls,
@@ -102,7 +83,7 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 	return ids, err
 }
 
-func insertApprovals(ctx context.Context, tx *sql.Tx, threadID string, calls []contract.Call) ([]string, error) {
+func insertApprovals(ctx context.Context, tx store.DBTX, threadID string, calls []contract.Call) ([]string, error) {
 	ids := make([]string, len(calls))
 	for i, call := range calls {
 		if _, err := tx.ExecContext(ctx,
@@ -111,13 +92,9 @@ func insertApprovals(ctx context.Context, tx *sql.Tx, threadID string, calls []c
 		); err != nil {
 			return nil, err
 		}
-		var approvalID string
-		if err := tx.QueryRowContext(ctx,
-			`SELECT id FROM approvals WHERE call_id = ?`, call.ID,
-		).Scan(&approvalID); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM approvals WHERE call_id = ?`, call.ID).Scan(&ids[i]); err != nil {
 			return nil, err
 		}
-		ids[i] = approvalID
 	}
 	return ids, nil
 }
