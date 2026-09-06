@@ -109,6 +109,11 @@ func (s *server) upsertSchedule(ctx context.Context, name, id string, body sched
 		if err := checkScheduleOwnership(ctx, tx, id, daemonID); err != nil {
 			return err
 		}
+		if doc.Thread == "" {
+			if doc.Thread, err = ensureThread(ctx, tx, daemonID); err != nil {
+				return err
+			}
+		}
 		return execUpsertSchedule(ctx, tx, daemonID, doc)
 	})
 	return doc, err

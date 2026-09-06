@@ -170,3 +170,17 @@ func TestCreateMarkerRejectsUnknownKind(t *testing.T) {
 		t.Errorf("markers = %d, want 1", n)
 	}
 }
+
+func TestSchedulePutWithoutThreadUsesDefaultThread(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+
+	rec := call(s.handlePutSchedule, http.MethodPut,
+		`{"cron":"0 7 * * *","tz":"UTC","policy":"queue"}`,
+		map[string]string{"name": "daemon-1", "id": "morning"})
+	var doc struct{ Thread string }
+	decode(t, rec, &doc)
+	if rec.Code != http.StatusOK || doc.Thread != "t1" {
+		t.Fatalf("status = %d, thread = %q; want 200, t1", rec.Code, doc.Thread)
+	}
+}
