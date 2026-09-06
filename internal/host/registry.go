@@ -18,12 +18,13 @@ type Registry interface {
 type Client struct {
 	rest.Client
 	Host string
+	Root string
 }
 
 var _ Registry = (*Client)(nil)
 
 func (c *Client) Register(ctx context.Context) error {
-	return c.Do(ctx, http.MethodPost, "/v1/hosts", map[string]string{"name": c.Host}, nil)
+	return c.Do(ctx, http.MethodPost, "/v1/hosts", map[string]string{"name": c.Host, "root": c.Root}, nil)
 }
 
 func (c *Client) Daemons(ctx context.Context) ([]Daemon, error) {

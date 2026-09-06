@@ -121,3 +121,24 @@ func TestCreateDaemonEnqueuesConjureOnce(t *testing.T) {
 		t.Errorf("unknown host status = %d, want 404", rec.Code)
 	}
 }
+
+func TestCreateMessageReusesThreadAndDedupes(t *testing.T) {
+	s, st := newTestServer(t)
+	storetest.Exec(t, st, `INSERT INTO hosts (id, name, root) VALUES ('h1', 'host-1', '/srv/daemons')`)
+	storetest.Exec(t, st, `INSERT INTO daemons (id, name, host_id, class, offline_policy) VALUES ('d1', 'foo', 'h1', 'anchored', 'queue')`)
+	path := map[string]string{"name": "foo"}
+
+	var first, second struct{ Thread, Message string }
+	decode(t, call(s.handleCreateMessage, http.MethodPost, `{"id":"m1","text":"hi"}`, path), &first)
+	decode(t, call(s.handleCreateMessage, http.MethodPost, `{"id":"m1","text":"hi"}`, path), &second)
+	decode(t, call(s.handleCreateMessage, http.MethodPost, `{"text":"again"}`, path), &second)
+	if first.Thread != second.Thread {
+		t.Errorf("threads differ: %q vs %q", first.Thread, second.Thread)
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'aether/message.sent'`); n != 2 {
+		t.Errorf("outbox count = %d, want 2", n)
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM threads WHERE directory = '/srv/daemons/foo'`); n != 1 {
+		t.Errorf("thread directory rows = %d, want 1", n)
+	}
+}

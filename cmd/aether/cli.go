@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/linell/aether/internal/rest"
+	"github.com/linell/aether/internal/store"
 )
 
 func restClient(aether string) (*rest.Client, error) {
@@ -56,4 +58,31 @@ func parseName(fs *flag.FlagSet, args []string, usage string) (string, error) {
 		return "", err
 	}
 	return args[0], nil
+}
+
+func tell(args []string) error {
+	fs := flag.NewFlagSet("tell", flag.ExitOnError)
+	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
+	name, err := parseName(fs, args, "tell <name> <text>")
+	if err != nil {
+		return err
+	}
+	text := strings.Join(fs.Args(), " ")
+	if text == "" {
+		return errors.New("usage: aether tell <name> <text>")
+	}
+	client, err := restClient(*aether)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Thread  string `json:"thread"`
+		Message string `json:"message"`
+	}
+	body := map[string]string{"id": store.NewID(), "text": text}
+	if err := client.Do(context.Background(), http.MethodPost, "/v1/daemons/"+name+"/messages", body, &doc); err != nil {
+		return err
+	}
+	fmt.Printf("sent %s to %s on thread %s\n", doc.Message, name, doc.Thread)
+	return nil
 }

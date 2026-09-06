@@ -16,19 +16,21 @@ type hostDoc struct {
 func (s *server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
+		Root string `json:"root"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	host, err := s.registerHost(r.Context(), body.Name)
+	host, err := s.registerHost(r.Context(), body.Name, body.Root)
 	respond(w, http.StatusOK, host, err)
 }
 
-func (s *server) registerHost(ctx context.Context, name string) (hostDoc, error) {
+func (s *server) registerHost(ctx context.Context, name, root string) (hostDoc, error) {
 	var host hostDoc
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO hosts (id, name) VALUES (?, ?)`, store.NewID(), name,
+			`INSERT INTO hosts (id, name, root) VALUES (?, ?, ?)
+			 ON CONFLICT(name) DO UPDATE SET root = excluded.root`, store.NewID(), name, root,
 		); err != nil {
 			return err
 		}

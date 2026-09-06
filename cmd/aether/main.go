@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -32,6 +33,8 @@ func main() {
 		fatalOnErr(connect(os.Args[2:]))
 	case "conjure":
 		fatalOnErr(conjure(os.Args[2:]))
+	case "tell":
+		fatalOnErr(tell(os.Args[2:]))
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -54,6 +57,7 @@ commands:
   serve     open the store and start the REST server
   connect   register this machine as a host and supervise its daemons
   conjure   create a daemon and ask its host to scaffold it
+  tell      send text to a daemon's thread
   version   print the aether version`)
 }
 
@@ -138,9 +142,14 @@ func connect(args []string) error {
 	if token == "" {
 		return errors.New("AETHER_TOKEN must not be empty")
 	}
+	absRoot, err := filepath.Abs(*root)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signalContext()
 	defer stop()
-	return runHost(ctx, &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name}, *root, *every)
+	client := &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name, Root: absRoot}
+	return runHost(ctx, client, absRoot, *every)
 }
 
 func runHost(ctx context.Context, client *host.Client, root string, every time.Duration) error {
