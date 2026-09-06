@@ -28,6 +28,8 @@ func (s *server) v1() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
+	mux.HandleFunc("GET /approvals/{id}", s.handleGetApproval)
+	mux.HandleFunc("POST /approvals/{id}/answer", s.handleAnswerApproval)
 	mux.HandleFunc("POST /daemons", s.handleCreateDaemon)
 	mux.HandleFunc("POST /daemons/{name}/messages", s.handleCreateMessage)
 	mux.HandleFunc("POST /daemons/{name}/markers", s.handleCreateMarker)

@@ -184,3 +184,26 @@ func TestSchedulePutWithoutThreadUsesDefaultThread(t *testing.T) {
 		t.Fatalf("status = %d, thread = %q; want 200, t1", rec.Code, doc.Thread)
 	}
 }
+
+func TestAnswerApprovalOnce(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	storetest.Exec(t, st, `INSERT INTO approvals (id, thread_id, call_id, tool, args, context) VALUES ('a1', 't1', 'c1', 'shell', '{}', '{}')`)
+	path := map[string]string{"id": "a1"}
+
+	var first, second struct{ Status string }
+	decode(t, call(s.handleAnswerApproval, http.MethodPost, `{"decision":"approved"}`, path), &first)
+	decode(t, call(s.handleAnswerApproval, http.MethodPost, `{"decision":"denied"}`, path), &second)
+	if first.Status != "approved" || second.Status != "approved" {
+		t.Errorf("statuses = %q, %q; want approved twice", first.Status, second.Status)
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'aether/approval.answered'`); n != 1 {
+		t.Errorf("outbox count = %d, want 1", n)
+	}
+	if rec := call(s.handleAnswerApproval, http.MethodPost, `{"decision":"maybe"}`, path); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	if rec := call(s.handleGetApproval, http.MethodGet, "", map[string]string{"id": "nope"}); rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}

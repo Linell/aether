@@ -85,3 +85,28 @@ func tell(args []string) error {
 	fmt.Printf("sent %s to %s on thread %s\n", doc.Message, name, doc.Thread)
 	return nil
 }
+
+func answer(args []string, decision string) error {
+	fs := flag.NewFlagSet(decision, flag.ExitOnError)
+	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
+	id, err := parseName(fs, args, decision+" <approval-id>")
+	if err != nil {
+		return err
+	}
+	client, err := restClient(*aether)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Status string `json:"status"`
+		Call   struct {
+			Tool string `json:"tool"`
+		} `json:"call"`
+	}
+	body := map[string]string{"decision": decision}
+	if err := client.Do(context.Background(), http.MethodPost, "/v1/approvals/"+id+"/answer", body, &doc); err != nil {
+		return err
+	}
+	fmt.Printf("approval %s is %s (%s)\n", id, doc.Status, doc.Call.Tool)
+	return nil
+}
