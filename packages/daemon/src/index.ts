@@ -1,6 +1,7 @@
 export * from "./contract";
 export * from "./manifest";
 export * from "./client";
+export * from "./instructions";
 export * from "./model";
 export * from "./policy";
 export * from "./tools";

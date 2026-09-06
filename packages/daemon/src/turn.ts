@@ -1,4 +1,7 @@
-import { AetherHttpError, type AetherClient, type Approval, type MarkerKind } from "./client";
+import { Agent, MaxTurnsExceededError, Runner, RunState, type AgentInputItem, type RunToolApprovalItem } from "@openai/agents";
+import { NonRetriableError } from "inngest";
+import { z } from "zod";
+import { AetherHttpError, type AetherClient, type Approval, type MarkerKind, type Thread } from "./client";
 import {
   Events,
   type ApprovalAnsweredPayload,
@@ -6,8 +9,9 @@ import {
   type ScheduleFiredPayload,
   type ToolCall,
 } from "./contract";
-import type { Model, ModelOutput, ToolRequest, ToolResult, TurnInput } from "./model";
-import type { Tool } from "./tools";
+import { DocLimit, instructionsFor } from "./instructions";
+import type { Model } from "./model";
+import type { ToolDeps, ToolFactory } from "./tools";
 
 export interface StepLike {
   run<T>(id: string, fn: () => Promise<T>): Promise<T>;
@@ -23,122 +27,167 @@ export interface TurnContext {
   runId: string;
   client: AetherClient;
   model: Model;
-  tools: Record<string, Tool>;
+  tools: ToolFactory[];
   step: StepLike;
+  maxTurns: number;
   now?: () => Date;
+}
+
+export interface TurnInput {
+  thread: string;
+  text: string;
 }
 
 export type TurnResult =
   | { status: "replied"; reply: string }
   | { status: "skipped"; marker: string }
-  | { status: "paused"; approvals: string[] };
+  | { status: "paused"; approvals: string[] }
+  | { status: "ignored" };
+
+type MarkerDeps = Pick<TurnContext, "daemon" | "runId" | "client">;
+
+interface Docs {
+  soul: string;
+  memory: string;
+  memoryVersion: number;
+  thread: Thread;
+}
 
 export function isStale(deadlineAt: string, now: Date): boolean {
   return new Date(deadlineAt).getTime() < now.getTime();
 }
 
 export function turnInputFor(event: TurnEvent): TurnInput {
-  const base = { daemon: event.data.daemon, thread: event.data.thread };
-  if (event.name === Events.ScheduleFired) {
-    const data = event.data as ScheduleFiredPayload;
-    return { ...base, kind: "schedule", schedule: data.schedule, text: `Run schedule ${data.schedule}` };
-  }
-  if (event.name === Events.ApprovalAnswered) {
-    return { ...base, kind: "approval", text: (event.data as ApprovalAnsweredPayload).decision };
-  }
-  return { ...base, kind: "message", text: (event.data as MessageSentPayload).text };
+  const thread = event.data.thread;
+  if ("schedule" in event.data) return { thread, text: `Run schedule ${event.data.schedule}` };
+  return { thread, text: "text" in event.data ? event.data.text : "" };
 }
 
 export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnResult> {
-  const now = ctx.now ?? (() => new Date());
-  if (event.name === Events.ScheduleFired && isStale((event.data as ScheduleFiredPayload).deadline_at, now())) {
-    return skipStale(ctx, event.data as ScheduleFiredPayload);
+  if (event.name === Events.ScheduleFired && "deadline_at" in event.data && (await stale(ctx, event.data))) {
+    return skipStale(ctx, event.data);
   }
+  if (event.name === Events.ApprovalAnswered && "approval" in event.data) return resume(ctx, event.data);
   const input = turnInputFor(event);
-  const docs = await ctx.step.run("load", () => loadDocs(ctx));
-  const model = (results?: ToolResult[]) =>
-    ctx.model({ soul: docs.soul, memory: docs.memory, input, now: now(), ...(results ? { results } : {}) });
-  if (event.name === Events.ApprovalAnswered) {
-    return finish(ctx, input, docs.memoryVersion, await model([await resume(ctx, event.data as ApprovalAnsweredPayload)]));
+  const docs = await ctx.step.run("load", () => loadDocs(ctx, input.thread));
+  const agent = agentFor(ctx, docs);
+  return conclude(ctx, docs, await runAgent(ctx, agent, input.text));
+}
+
+function stale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<boolean> {
+  const now = ctx.now ?? (() => new Date());
+  return ctx.step.run("stale", async () => isStale(data.deadline_at, now()));
+}
+
+async function resume(ctx: TurnContext, data: ApprovalAnsweredPayload): Promise<TurnResult> {
+  const approval = await ctx.step.run("approval", () => ctx.client.getApproval(data.approval));
+  if (approval.status === "pending" || approval.state === undefined) return { status: "ignored" };
+  const docs = await ctx.step.run("load", () => loadDocs(ctx, data.thread));
+  const agent = agentFor(ctx, docs);
+  const state = await RunState.fromString(agent, approval.state);
+  const item = state.getInterruptions().find((i) => callIdOf(i) === approval.call.id);
+  if (!item) return { status: "ignored" };
+  decide(state, item, approval);
+  return conclude(ctx, docs, await runAgent(ctx, agent, state));
+}
+
+function decide(state: RunState<unknown, Agent>, item: RunToolApprovalItem, approval: Approval): void {
+  if (approval.status === "approved") state.approve(item);
+  else state.reject(item);
+}
+
+function agentFor(ctx: TurnContext, docs: Docs): Agent {
+  const deps: ToolDeps = {
+    step: ctx.step,
+    client: ctx.client,
+    daemon: ctx.daemon,
+    thread: docs.thread.id,
+    cwd: docs.thread.directory,
+    host: docs.thread.host,
+  };
+  const tools = ctx.tools.map((make) => make(deps));
+  const instructions = instructionsFor({ daemon: ctx.daemon, soul: docs.soul, memory: docs.memory, tools: tools.map((t) => t.name) });
+  return new Agent({ name: ctx.daemon, instructions, tools });
+}
+
+async function runAgent(ctx: TurnContext, agent: Agent, input: string | AgentInputItem[] | RunState<unknown, Agent>) {
+  const runner = new Runner({ model: ctx.model, tracingDisabled: true });
+  try {
+    return await runner.run(agent, input, { maxTurns: ctx.maxTurns });
+  } catch (err) {
+    if (err instanceof MaxTurnsExceededError) throw new NonRetriableError(err.message, { cause: err });
+    throw err;
   }
-  const output = await ctx.step.run("model", () => model());
-  if (!output.calls?.length) return finish(ctx, input, docs.memoryVersion, output);
-  const calls = await ctx.step.run("calls", () => buildCalls(ctx, input.thread, output.calls ?? []));
-  const pending = await ctx.step.run("match", () => unmatched(ctx, input.thread, calls));
-  if (pending.length > 0) return pause(ctx, input.thread, pending);
-  const results = await executeAll(ctx, calls);
-  return finish(ctx, input, docs.memoryVersion, await ctx.step.run("model-results", () => model(results)));
 }
 
-async function finish(ctx: TurnContext, input: TurnInput, version: number, output: ModelOutput): Promise<TurnResult> {
-  await ctx.step.run("reply", () => ctx.client.reply(input.thread, output.reply, `${ctx.runId}:reply`));
-  await ctx.step.run("memory", () => writeMemory(ctx, input.thread, output, version));
-  return { status: "replied", reply: output.reply };
+type Run = Awaited<ReturnType<typeof runAgent>>;
+
+async function conclude(ctx: TurnContext, docs: Docs, result: Run): Promise<TurnResult> {
+  if (result.interruptions.length > 0) return pause(ctx, docs.thread, result);
+  const reply = String(result.finalOutput ?? "");
+  await ctx.step.run("reply", () => ctx.client.reply(docs.thread.id, reply, `${ctx.runId}:reply`));
+  await remember(ctx, docs, result.history);
+  return { status: "replied", reply };
 }
 
-async function buildCalls(ctx: TurnContext, thread: string, requests: ToolRequest[]): Promise<ToolCall[]> {
-  const t = await ctx.client.getThread(thread);
-  return requests.map((r, i) => ({
-    id: `${ctx.runId}:call:${i}`,
-    tool: r.tool,
-    args: r.args,
-    context: { cwd: t.directory, host: t.host },
-  }));
-}
-
-async function unmatched(ctx: TurnContext, thread: string, calls: ToolCall[]): Promise<ToolCall[]> {
-  const matches = await Promise.all(calls.map((c) => ctx.client.matchCall(ctx.daemon, thread, c)));
-  return calls.filter((_, i) => !matches[i]?.allowed);
-}
-
-async function pause(ctx: TurnContext, thread: string, calls: ToolCall[]): Promise<TurnResult> {
-  const { approvals } = await ctx.step.run("pause", () => ctx.client.requestApproval(thread, calls));
-  await ctx.step.run("mark-paused", () => mark(ctx, "turn.paused", thread, approvals.join(","), { calls: calls.map((c) => c.id) }));
+async function pause(ctx: TurnContext, thread: Thread, result: Run): Promise<TurnResult> {
+  const calls = result.interruptions.map((item) => callFor(item, thread));
+  const state = result.state.toString();
+  const { approvals } = await ctx.step.run("pause", () => ctx.client.requestApproval(thread.id, calls, state));
+  await ctx.step.run("mark-paused", () => mark(ctx, "turn.paused", thread.id, approvals.join(","), { calls: calls.map((c) => c.id) }));
   return { status: "paused", approvals };
 }
 
-async function executeAll(ctx: TurnContext, calls: ToolCall[]): Promise<ToolResult[]> {
-  const results: ToolResult[] = [];
-  for (const call of calls) results.push(await ctx.step.run(`exec:${call.id}`, () => execute(ctx, call)));
-  return results;
+function callFor(item: RunToolApprovalItem, thread: Thread): ToolCall {
+  return {
+    id: callIdOf(item),
+    tool: item.name ?? "unknown",
+    args: parseArgs(item.arguments),
+    context: { cwd: thread.directory, host: thread.host },
+  };
 }
 
-export async function execute(ctx: TurnContext, call: ToolCall): Promise<ToolResult> {
-  if (!(await ctx.client.claimOperation(call.id, "tool.call"))) {
-    return { call, status: "skipped", output: "already executed; output unavailable" };
-  }
-  const tool = ctx.tools[call.tool];
-  if (!tool) return { call, status: "error", output: `unknown tool ${call.tool}` };
-  try {
-    return { call, status: "ok", output: await tool.run(call.args, { cwd: call.context.cwd }) };
-  } catch (err) {
-    return { call, status: "error", output: (err as Error).message };
-  }
+function callIdOf(item: RunToolApprovalItem): string {
+  if ("callId" in item.rawItem) return item.rawItem.callId;
+  throw new Error(`approval item without callId: ${item.rawItem.type}`);
 }
 
-async function resume(ctx: TurnContext, data: ApprovalAnsweredPayload): Promise<ToolResult> {
-  const approval = await ctx.step.run("approval", () => ctx.client.getApproval(data.approval));
-  if (approval.status !== "approved") return denied(approval);
-  return ctx.step.run(`exec:${approval.call.id}`, () => execute(ctx, approval.call));
+const Args = z.record(z.string(), z.unknown());
+
+function parseArgs(text: string | undefined): Record<string, unknown> {
+  return Args.parse(JSON.parse(text ?? "{}"));
 }
 
-function denied(approval: Approval): ToolResult {
-  return { call: approval.call, status: "denied", output: `denied by operator (${approval.status})` };
+async function remember(ctx: TurnContext, docs: Docs, history: AgentInputItem[]): Promise<void> {
+  const agent = new Agent({ name: `${ctx.daemon}-memory`, instructions: memoryInstructions(ctx.daemon, docs.memory) });
+  const result = await runAgent(ctx, agent, history);
+  const next = String(result.finalOutput ?? "").trim();
+  if (next.length === 0 || next === docs.memory.trim()) return;
+  await ctx.step.run("put-memory", () => writeMemory(ctx, docs.thread.id, next, docs.memoryVersion));
 }
 
-async function skipStale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<TurnResult> {
+function memoryInstructions(daemon: string, memory: string): string {
+  return [
+    `You maintain the memory document of ${daemon}, an aether daemon. The conversation is the turn it just completed.`,
+    "Reply with the full updated memory document and nothing else: short, factual, free of secrets, no headings about the task. Return the current document unchanged when nothing is worth keeping.",
+    `--- current memory ---\n${memory.trim().slice(0, DocLimit)}`,
+  ].join("\n\n");
+}
+
+export async function skipStale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<TurnResult> {
   const marker = await ctx.step.run("mark-stale", () =>
     mark(ctx, "schedule.stale", data.thread, data.schedule, { due_at: data.due_at, deadline_at: data.deadline_at }),
   );
   return { status: "skipped", marker };
 }
 
-async function loadDocs(ctx: TurnContext) {
-  const [soul, memory] = await Promise.all([
+async function loadDocs(ctx: TurnContext, thread: string): Promise<Docs> {
+  const [soul, memory, t] = await Promise.all([
     ctx.client.getSoul(ctx.daemon).catch(emptyOn404),
     ctx.client.getMemory(ctx.daemon),
+    ctx.client.getThread(thread),
   ]);
-  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version };
+  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version, thread: t };
 }
 
 function emptyOn404(err: unknown) {
@@ -146,17 +195,16 @@ function emptyOn404(err: unknown) {
   throw err;
 }
 
-async function writeMemory(ctx: TurnContext, thread: string, output: ModelOutput, version: number) {
-  if (output.memory === undefined) return;
+async function writeMemory(ctx: TurnContext, thread: string, text: string, version: number): Promise<void> {
   try {
-    await ctx.client.putMemory(ctx.daemon, output.memory, version);
+    await ctx.client.putMemory(ctx.daemon, text, version);
   } catch (err) {
     if (!(err instanceof AetherHttpError && err.status === 409)) throw err;
     await mark(ctx, "memory.conflict", thread, `${version}`, { expected_version: version });
   }
 }
 
-export async function mark(ctx: TurnContext, kind: MarkerKind, thread: string, ref: string, detail: unknown) {
+export async function mark(ctx: MarkerDeps, kind: MarkerKind, thread: string, ref: string, detail: unknown): Promise<string> {
   const id = `${ctx.runId}:${kind}`;
   await ctx.client.putMarker(ctx.daemon, { id, kind, thread, ref, detail: JSON.stringify(detail) });
   return id;

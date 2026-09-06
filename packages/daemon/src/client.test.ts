@@ -33,3 +33,16 @@ describe("createClient", () => {
     expect((err as AetherHttpError).body).toBe("boom");
   });
 });
+
+test("requestApproval posts calls with the paused run state", async () => {
+  let body = "";
+  const client = clientWith((_url, init) => {
+    body = String(init.body);
+    return new Response(JSON.stringify({ approval: "a1", approvals: ["a1"] }), { status: 200 });
+  });
+
+  const call = { id: "c1", tool: "shell", args: { argv: ["ls"] }, context: { cwd: "/w", host: "h" } };
+  await client.requestApproval("t1", [call], "state-blob");
+
+  expect(JSON.parse(body)).toEqual({ calls: [call], state: "state-blob" });
+});

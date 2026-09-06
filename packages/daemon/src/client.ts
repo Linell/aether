@@ -41,6 +41,7 @@ export interface Approval {
   thread: string;
   status: "pending" | "approved" | "denied";
   call: ToolCall;
+  state?: string;
 }
 
 export interface MatchResult {
@@ -64,7 +65,7 @@ export class AetherHttpError extends Error {
 export interface AetherClient {
   reply(thread: string, text: string, id?: string): Promise<void>;
   putMarker(daemon: string, marker: Marker): Promise<void>;
-  requestApproval(thread: string, calls: ToolCall[]): Promise<{ approval: string; approvals: string[] }>;
+  requestApproval(thread: string, calls: ToolCall[], state: string): Promise<{ approval: string; approvals: string[] }>;
   getThread(id: string): Promise<Thread>;
   getApproval(id: string): Promise<Approval>;
   matchCall(daemon: string, thread: string, call: ToolCall): Promise<MatchResult>;
@@ -105,7 +106,7 @@ export function createClient(options: CreateClientOptions): AetherClient {
     async putMarker(daemon, marker) {
       await request("POST", `/daemons/${daemon}/markers`, marker);
     },
-    requestApproval: (thread, calls) => request("POST", `/threads/${thread}/approvals`, { calls }),
+    requestApproval: (thread, calls, state) => request("POST", `/threads/${thread}/approvals`, { calls, state }),
     getThread: (id) => request("GET", `/threads/${id}`),
     getApproval: (id) => request("GET", `/approvals/${id}`),
     matchCall: (daemon, thread, call) => request("POST", `/daemons/${daemon}/allowlist/match`, { thread, call }),

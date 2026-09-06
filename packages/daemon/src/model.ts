@@ -1,85 +1,146 @@
-import type { ToolCall } from "./contract";
+import {
+  OpenAIProvider,
+  Usage,
+  type AgentInputItem,
+  type AgentOutputItem,
+  type Model,
+  type ModelRequest,
+  type ModelResponse,
+  type protocol,
+} from "@openai/agents";
+import { aisdk } from "@openai/agents-extensions/ai-sdk";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import type { StepLike } from "./turn";
 
-export type TurnKind = "message" | "schedule" | "approval";
+export type { Model } from "@openai/agents";
 
-export interface TurnInput {
-  kind: TurnKind;
-  daemon: string;
-  thread: string;
-  text: string;
-  schedule?: string;
+export type ModelProvider = "openai" | "anthropic" | "scripted";
+
+export interface ModelSpec {
+  provider: ModelProvider;
+  name: string;
 }
 
-export interface ToolRequest {
-  tool: string;
-  args: Record<string, unknown>;
+export const DefaultModel = "openai:gpt-5.4-mini";
+
+export function parseModelSpec(env: Record<string, string | undefined>): ModelSpec {
+  const raw = env.AETHER_MODEL ?? DefaultModel;
+  if (raw === "scripted") return { provider: "scripted", name: "scripted" };
+  const sep = raw.indexOf(":");
+  const provider = raw.slice(0, sep);
+  const name = raw.slice(sep + 1);
+  if ((provider === "openai" || provider === "anthropic") && name.length > 0) return { provider, name };
+  throw new Error(`AETHER_MODEL: unrecognized ${JSON.stringify(raw)}`);
 }
 
-export type ToolStatus = "ok" | "error" | "denied" | "skipped";
-
-export interface ToolResult {
-  call: ToolCall;
-  status: ToolStatus;
-  output: string;
+export function modelFor(spec: ModelSpec, step: StepLike): Model {
+  if (spec.provider === "scripted") return scriptedModel(step);
+  return stepped(step, providerModel(spec));
 }
 
-export interface ModelInput {
-  soul: string;
-  memory: string;
-  input: TurnInput;
-  now: Date;
-  results?: ToolResult[];
+interface Responder {
+  getResponse(request: ModelRequest): Promise<Responded>;
 }
 
-export interface ModelOutput {
-  reply: string;
-  memory?: string;
-  calls?: ToolRequest[];
+interface Responded {
+  output: AgentOutputItem[];
+  responseId?: string | undefined;
+  usage: Usage;
 }
 
-export type Model = (input: ModelInput) => Promise<ModelOutput>;
-
-export const templateModel: Model = async ({ memory, input, now, results }) => {
-  const day = now.toISOString().slice(0, 10);
-  if (results) return { reply: renderResults(results), memory: appendLine(memory, `${day}: ${noteResults(results)}`) };
-  const argv = shellRequest(input);
-  if (argv) return { reply: "", calls: [{ tool: "shell", args: { argv } }] };
-  const note = input.kind === "schedule" ? `${day}: ran schedule ${input.schedule}` : `${day}: heard ${input.text}`;
-  return { reply: render(input, memory), memory: appendLine(memory, note) };
-};
-
-function shellRequest(input: TurnInput): string[] | undefined {
-  if (input.kind !== "message" || !input.text.startsWith("run ")) return undefined;
-  const argv = input.text.slice(4).trim().split(/\s+/);
-  return argv[0] ? argv : undefined;
-}
-
-function renderResults(results: ToolResult[]): string {
-  return results.map((r) => `${describe(r.call)} → ${r.status}\n${r.output}`.trim()).join("\n\n");
-}
-
-function noteResults(results: ToolResult[]): string {
-  return results.map((r) => `${describe(r.call)} ${r.status}`).join("; ");
-}
-
-export function describe(call: ToolCall): string {
-  const argv = call.args.argv;
-  return Array.isArray(argv) ? `${call.tool} ${argv.join(" ")}` : `${call.tool} ${JSON.stringify(call.args)}`;
-}
-
-function render(input: TurnInput, memory: string): string {
-  if (input.kind === "schedule") {
-    return `Morning review for ${input.daemon}.\n${summarize(memory)}`;
+function providerModel(spec: ModelSpec): () => Promise<Responder> {
+  if (spec.provider === "anthropic") {
+    const inner = aisdk(createAnthropic()(spec.name));
+    return async () => inner;
   }
-  return `Noted: ${input.text}`;
+  const provider = new OpenAIProvider({ useResponses: true });
+  return () => provider.getModel(spec.name);
 }
 
-function summarize(memory: string): string {
-  const lines = memory.split("\n").filter((l) => l.length > 0);
-  if (lines.length === 0) return "No memory yet.";
-  return `Memory has ${lines.length} note(s). Latest: ${lines[lines.length - 1]}`;
+interface Memoized {
+  output: AgentOutputItem[];
+  responseId?: string;
+  usage: { input_tokens: number; output_tokens: number; total_tokens: number };
 }
 
-function appendLine(memory: string, line: string): string {
-  return memory.length === 0 ? line : `${memory}\n${line}`;
+function stepped(step: StepLike, inner: () => Promise<Responder>): Model {
+  return {
+    async getResponse(request) {
+      const done = await step.run("model", async () => memoize(await (await inner()).getResponse(request)));
+      return restore(done);
+    },
+    getStreamedResponse: neverStreams,
+  };
+}
+
+function memoize(res: Responded): Memoized {
+  const { inputTokens, outputTokens, totalTokens } = res.usage;
+  const usage = { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: totalTokens };
+  return res.responseId === undefined ? { output: res.output, usage } : { output: res.output, responseId: res.responseId, usage };
+}
+
+function restore(done: Memoized): ModelResponse {
+  const usage = new Usage({ requests: 1, ...done.usage });
+  return done.responseId === undefined ? { output: done.output, usage } : { output: done.output, responseId: done.responseId, usage };
+}
+
+function neverStreams(): never {
+  throw new Error("streaming is never used");
+}
+
+function scriptedModel(step: StepLike): Model {
+  return {
+    async getResponse(request) {
+      const output = await step.run("model", async () => (hasToolResults(request) ? sayDone(request) : callBoth()));
+      return { output, usage: new Usage() };
+    },
+    getStreamedResponse: neverStreams,
+  };
+}
+
+function callBoth(): AgentOutputItem[] {
+  return [shellCall("call_a", ["echo", "alpha"]), shellCall("call_b", ["echo", "beta"])];
+}
+
+function shellCall(callId: string, argv: string[]): AgentOutputItem {
+  return { type: "function_call", callId, name: "shell", status: "completed", arguments: JSON.stringify({ argv }) };
+}
+
+function sayDone(request: ModelRequest): AgentOutputItem[] {
+  const outputs = thisTurn(request).filter(isResult).map((item) => textOf(item.output).trim());
+  return [
+    {
+      type: "message",
+      role: "assistant",
+      status: "completed",
+      content: [{ type: "output_text", text: `done: ${outputs.join(", ")}` }],
+    },
+  ];
+}
+
+function hasToolResults(request: ModelRequest): boolean {
+  return thisTurn(request).some(isResult);
+}
+
+function thisTurn(request: ModelRequest): AgentInputItem[] {
+  if (typeof request.input === "string") return [];
+  let start = 0;
+  request.input.forEach((item, i) => {
+    if (isUser(item)) start = i + 1;
+  });
+  return request.input.slice(start);
+}
+
+function isUser(item: AgentInputItem): boolean {
+  return "role" in item && item.role === "user";
+}
+
+function isResult(item: AgentInputItem): item is protocol.FunctionCallResultItem {
+  return item.type === "function_call_result";
+}
+
+function textOf(output: protocol.FunctionCallResultItem["output"]): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) return output.flatMap((o) => (o.type === "input_text" ? [o.text] : [])).join(" ");
+  return output.type === "text" ? output.text : "";
 }

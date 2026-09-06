@@ -165,7 +165,7 @@ external conversation to a thread and renders `daemon/message.replied` back. Tel
 
 ## Rejected
 
-- `step.ai.wrap`: doubles run state, since the Agents run already carries it.
+- `step.ai.wrap`: memoizes each call's input, and a model request is the whole item list, so run state doubles.
 - Waiting on approval inside the turn (`waitForEvent`, `sleep`): approval has no timeout, so the paused run ends.
 - `step.ai.infer`: no tool loop; the Agents runner owns the model call.
 - Hosted tools (shell, apply patch, web search): tie the daemon to one provider.
