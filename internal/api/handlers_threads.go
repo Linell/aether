@@ -13,9 +13,7 @@ func (s *server) handleThreadReply(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if body.ID == "" {
-		body.ID = store.NewID()
-	}
+	body.ID = withID(body.ID)
 	err := s.insertReply(r.Context(), r.PathValue("id"), body)
 	respond(w, http.StatusOK, map[string]string{"reply": body.ID}, err)
 }

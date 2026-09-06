@@ -28,9 +28,7 @@ func (s *server) handleCreateMarker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid kind: %q", body.Kind))
 		return
 	}
-	if body.ID == "" {
-		body.ID = store.NewID()
-	}
+	body.ID = withID(body.ID)
 	err := s.createMarker(r.Context(), r.PathValue("name"), body)
 	respond(w, http.StatusOK, map[string]string{"marker": body.ID}, err)
 }

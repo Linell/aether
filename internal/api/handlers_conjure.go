@@ -42,14 +42,11 @@ func (s *server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	doc, created, err := s.createDaemon(r.Context(), body)
-	respond(w, statusCreated(created), doc, err)
-}
-
-func statusCreated(created bool) int {
+	status := http.StatusOK
 	if created {
-		return http.StatusCreated
+		status = http.StatusCreated
 	}
-	return http.StatusOK
+	respond(w, status, doc, err)
 }
 
 func validateDaemon(body createDaemonBody) error {
@@ -91,8 +88,7 @@ func insertDaemon(ctx context.Context, tx store.DBTX, body createDaemonBody, hos
 	if err != nil {
 		return false, err
 	}
-	n, err := out.RowsAffected()
-	return n == 1, err
+	return inserted(out)
 }
 
 func enqueueConjure(ctx context.Context, tx *store.Tx, doc daemonDoc, host string, created bool) error {

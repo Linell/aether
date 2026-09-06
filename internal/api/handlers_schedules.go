@@ -110,7 +110,7 @@ func (s *server) upsertSchedule(ctx context.Context, name, id string, body sched
 			return err
 		}
 		if doc.Thread == "" {
-			if doc.Thread, err = ensureThread(ctx, tx, daemonID); err != nil {
+			if doc.Thread, err = ensureThread(ctx, tx, daemonID, name); err != nil {
 				return err
 			}
 		}

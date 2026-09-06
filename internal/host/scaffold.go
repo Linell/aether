@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/linell/aether/internal/policy"
 )
 
 type Runner func(ctx context.Context, dir string, args ...string) error
@@ -34,7 +32,7 @@ func Scaffold(ctx context.Context, dir, name, sdk string, run Runner) error {
 
 func scaffoldFiles(name, sdk string) map[string]string {
 	return map[string]string{
-		"aether.json":  jsonDoc(map[string]any{"name": name, "run": "bun run start"}),
+		"aether.json":  jsonDoc(Manifest{Name: name, Run: "bun run start"}),
 		"package.json": jsonDoc(packageJSON(name, sdk)),
 		"index.ts":     indexTS(name),
 		".gitignore":   "node_modules\n",
@@ -79,7 +77,7 @@ func writeIfMissing(path, body string) error {
 func Exec(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
-	cmd.Env = policy.ScrubEnv(os.Environ(), policy.DefaultEnvAllow)
+	cmd.Env = BaseEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("host: %v in %s: %w: %s", args, dir, err, out)

@@ -139,9 +139,9 @@ func connect(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	token := os.Getenv("AETHER_TOKEN")
-	if token == "" {
-		return errors.New("AETHER_TOKEN must not be empty")
+	token, err := requireToken()
+	if err != nil {
+		return err
 	}
 	absRoot, err := filepath.Abs(*root)
 	if err != nil {
@@ -149,15 +149,22 @@ func connect(args []string) error {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	client := &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name, Root: absRoot}
-	sup := host.New(absRoot, client)
+	client := &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name}
+	sup := host.New(absRoot, client, host.DaemonEnv(*aether, token))
 	sup.SDK = *sdk
-	sup.Env = host.DaemonEnv(*aether, token)
 	return runHost(ctx, client, sup, *every)
 }
 
+func requireToken() (string, error) {
+	token := os.Getenv("AETHER_TOKEN")
+	if token == "" {
+		return "", errors.New("AETHER_TOKEN must not be empty")
+	}
+	return token, nil
+}
+
 func runHost(ctx context.Context, client *host.Client, sup *host.Supervisor, every time.Duration) error {
-	if err := client.Register(ctx); err != nil {
+	if err := client.Register(ctx, sup.Root()); err != nil {
 		return err
 	}
 	if err := connectHost(ctx, client.Host, sup); err != nil {

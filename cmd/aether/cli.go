@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/linell/aether/internal/rest"
@@ -14,9 +13,9 @@ import (
 )
 
 func restClient(aether string) (*rest.Client, error) {
-	token := os.Getenv("AETHER_TOKEN")
-	if token == "" {
-		return nil, errors.New("AETHER_TOKEN must not be empty")
+	token, err := requireToken()
+	if err != nil {
+		return nil, err
 	}
 	return &rest.Client{BaseURL: aether, Token: token}, nil
 }

@@ -21,6 +21,18 @@ func lookup(ctx context.Context, q store.DBTX, query string, arg any, dest ...an
 	return err
 }
 
+func inserted(out sql.Result) (bool, error) {
+	n, err := out.RowsAffected()
+	return n == 1, err
+}
+
+func withID(id string) string {
+	if id != "" {
+		return id
+	}
+	return store.NewID()
+}
+
 func daemonIDByName(ctx context.Context, q store.DBTX, name string) (string, error) {
 	var id string
 	err := lookup(ctx, q, `SELECT id FROM daemons WHERE name = ?`, name, &id)

@@ -51,8 +51,7 @@ export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnR
 }
 
 async function skipStale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<TurnResult> {
-  const marker = `${ctx.runId}:schedule.stale`;
-  await ctx.step.run("mark-stale", () =>
+  const marker = await ctx.step.run("mark-stale", () =>
     mark(ctx, "schedule.stale", data.thread, data.schedule, { due_at: data.due_at, deadline_at: data.deadline_at }),
   );
   return { status: "skipped", marker };
@@ -81,12 +80,8 @@ async function writeMemory(ctx: TurnContext, thread: string, output: ModelOutput
   }
 }
 
-export function mark(ctx: TurnContext, kind: MarkerKind, thread: string, ref: string, detail: unknown) {
-  return ctx.client.putMarker(ctx.daemon, {
-    id: `${ctx.runId}:${kind}`,
-    kind,
-    thread,
-    ref,
-    detail: JSON.stringify(detail),
-  });
+export async function mark(ctx: TurnContext, kind: MarkerKind, thread: string, ref: string, detail: unknown) {
+  const id = `${ctx.runId}:${kind}`;
+  await ctx.client.putMarker(ctx.daemon, { id, kind, thread, ref, detail: JSON.stringify(detail) });
+  return id;
 }

@@ -21,13 +21,8 @@ type Supervisor struct {
 	running map[string]*exec.Cmd
 }
 
-func New(root string, reg Registry) *Supervisor {
-	return &Supervisor{
-		root:    root,
-		reg:     reg,
-		Env:     policy.ScrubEnv(os.Environ(), policy.DefaultEnvAllow),
-		running: make(map[string]*exec.Cmd),
-	}
+func New(root string, reg Registry, env []string) *Supervisor {
+	return &Supervisor{root: root, reg: reg, Env: env, running: make(map[string]*exec.Cmd)}
 }
 
 func (s *Supervisor) Root() string { return s.root }

@@ -38,7 +38,7 @@ func TestReconcileSpawnsExactlyOnce(t *testing.T) {
 	root := t.TempDir()
 	writeManifest(t, filepath.Join(root, "foo"), Manifest{Name: "foo", Run: "sleep 30"})
 
-	sup := New(root, &fakeRegistry{daemons: []Daemon{{Name: "foo"}}})
+	sup := New(root, &fakeRegistry{daemons: []Daemon{{Name: "foo"}}}, BaseEnv())
 	ctx := context.Background()
 
 	if err := sup.Reconcile(ctx); err != nil {

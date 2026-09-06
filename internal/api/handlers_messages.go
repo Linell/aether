@@ -23,9 +23,7 @@ func (s *server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text must not be empty")
 		return
 	}
-	if body.ID == "" {
-		body.ID = store.NewID()
-	}
+	body.ID = withID(body.ID)
 	threadID, err := s.createMessage(r.Context(), r.PathValue("name"), body)
 	respond(w, http.StatusOK, map[string]string{"thread": threadID, "message": body.ID}, err)
 }
@@ -37,7 +35,7 @@ func (s *server) createMessage(ctx context.Context, name string, body messageBod
 		if err != nil {
 			return err
 		}
-		if threadID, err = ensureThread(ctx, tx, daemonID); err != nil {
+		if threadID, err = ensureThread(ctx, tx, daemonID, name); err != nil {
 			return err
 		}
 		inserted, err := insertMessage(ctx, tx, threadID, "user", body)
@@ -59,11 +57,10 @@ func insertMessage(ctx context.Context, tx store.DBTX, threadID, role string, bo
 	if err != nil {
 		return false, err
 	}
-	n, err := out.RowsAffected()
-	return n == 1, err
+	return inserted(out)
 }
 
-func ensureThread(ctx context.Context, tx store.DBTX, daemonID string) (string, error) {
+func ensureThread(ctx context.Context, tx store.DBTX, daemonID, name string) (string, error) {
 	var id string
 	err := lookup(ctx, tx,
 		`SELECT id FROM threads WHERE daemon_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
@@ -71,14 +68,14 @@ func ensureThread(ctx context.Context, tx store.DBTX, daemonID string) (string, 
 	if err == nil || err != errNotFound {
 		return id, err
 	}
-	return createThread(ctx, tx, daemonID)
+	return createThread(ctx, tx, daemonID, name)
 }
 
-func createThread(ctx context.Context, tx store.DBTX, daemonID string) (string, error) {
-	var name, hostID, root string
+func createThread(ctx context.Context, tx store.DBTX, daemonID, name string) (string, error) {
+	var hostID, root string
 	err := lookup(ctx, tx,
-		`SELECT d.name, h.id, h.root FROM daemons d JOIN hosts h ON h.id = d.host_id WHERE d.id = ?`,
-		daemonID, &name, &hostID, &root)
+		`SELECT h.id, h.root FROM daemons d JOIN hosts h ON h.id = d.host_id WHERE d.id = ?`,
+		daemonID, &hostID, &root)
 	if err != nil {
 		return "", err
 	}
