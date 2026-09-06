@@ -19,6 +19,7 @@ import (
 	"github.com/linell/aether/internal/policy"
 	"github.com/linell/aether/internal/rest"
 	"github.com/linell/aether/internal/store"
+	"github.com/linell/aether/internal/telegram"
 )
 
 var version = "dev"
@@ -117,11 +118,23 @@ func startInngest(ctx context.Context, st *store.Store, drainEvery time.Duration
 	if err := inngest.RegisterScheduler(pub, st); err != nil {
 		return err
 	}
+	if err := registerTelegram(pub, st); err != nil {
+		return err
+	}
 	if _, err := inngest.Connect(ctx, pub, instanceID()); err != nil {
 		return err
 	}
 	go store.RunDrain(ctx, st, pub, drainEvery)
 	return nil
+}
+
+func registerTelegram(pub *inngest.Client, st *store.Store) error {
+	cfg := telegram.ConfigFromEnv()
+	if !cfg.Enabled() {
+		log.Print("telegram: TELEGRAM_BOT_TOKEN not set, channel disabled")
+		return nil
+	}
+	return inngest.RegisterTelegram(pub, st, &telegram.Outbound{Store: st, Client: telegram.NewClient(cfg)})
 }
 
 func runServer(ctx context.Context, srv *http.Server) error {
