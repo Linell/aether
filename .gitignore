@@ -54,3 +54,8 @@ coverage.out
 .wrangler/
 .tmp/
 tmp/
+
+# Aether local state
+*.db
+*.db-wal
+*.db-shm

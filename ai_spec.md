@@ -1,6 +1,6 @@
 # Aether
 
-Status: decided, not built.
+Status: decided. Build progress is tracked in `README.md`.
 
 ## Goals
 
