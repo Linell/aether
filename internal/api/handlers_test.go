@@ -123,6 +123,48 @@ func TestCreateDaemonEnqueuesConjureOnce(t *testing.T) {
 	}
 }
 
+func TestCreateDaemonStoresModel(t *testing.T) {
+	s, st := newTestServer(t)
+	storetest.Exec(t, st, `INSERT INTO hosts (id, name) VALUES ('h1', 'host-1')`)
+	rec := call(s.handleCreateDaemon, http.MethodPost,
+		`{"name":"foo","host":"host-1","class":"anchored","offline_policy":"queue","model":"anthropic:claude-sonnet-4-5"}`, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	var doc daemonDoc
+	decode(t, rec, &doc)
+	if doc.Model != "anthropic:claude-sonnet-4-5" {
+		t.Errorf("model = %q, want anthropic:claude-sonnet-4-5", doc.Model)
+	}
+	rec = call(s.handleCreateDaemon, http.MethodPost,
+		`{"name":"bar","host":"host-1","class":"anchored","offline_policy":"queue","model":"gpt-5"}`, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad model status = %d, want 400", rec.Code)
+	}
+}
+
+func TestPatchDaemonModelRoundTrip(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	path := map[string]string{"name": "daemon-1"}
+
+	rec := call(s.handlePatchDaemon, http.MethodPatch, `{"model":"openai:gpt-5"}`, path)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var doc daemonDoc
+	decode(t, call(s.handleGetDaemon, http.MethodGet, "", path), &doc)
+	if doc.Model != "openai:gpt-5" {
+		t.Errorf("model = %q, want openai:gpt-5", doc.Model)
+	}
+	if rec := call(s.handlePatchDaemon, http.MethodPatch, `{"model":"llama"}`, path); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad spec status = %d, want 400", rec.Code)
+	}
+	if rec := call(s.handlePatchDaemon, http.MethodPatch, `{"model":"scripted"}`, map[string]string{"name": "nope"}); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown daemon status = %d, want 404", rec.Code)
+	}
+}
+
 func TestCreateMessageReusesThreadAndDedupes(t *testing.T) {
 	s, st := newTestServer(t)
 	storetest.Exec(t, st, `INSERT INTO hosts (id, name, root) VALUES ('h1', 'host-1', '/srv/daemons')`)

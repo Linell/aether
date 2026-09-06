@@ -26,7 +26,8 @@ func conjure(args []string) error {
 	host := fs.String("host", instanceID(), "host that will run the daemon")
 	class := fs.String("class", "anchored", "daemon class: anchored or opportunistic")
 	policy := fs.String("policy", "queue", "offline policy: queue, skip, or ttl")
-	name, err := parseName(fs, args, "conjure <name> [--host h]")
+	model := fs.String("model", "", "model spec: openai:<model>, anthropic:<model>, or scripted")
+	name, err := parseName(fs, args, "conjure <name> [--host h] [--model spec]")
 	if err != nil {
 		return err
 	}
@@ -38,7 +39,7 @@ func conjure(args []string) error {
 		Name string `json:"name"`
 		Host string `json:"host"`
 	}
-	body := map[string]string{"name": name, "host": *host, "class": *class, "offline_policy": *policy}
+	body := map[string]string{"name": name, "host": *host, "class": *class, "offline_policy": *policy, "model": *model}
 	if err := client.Do(context.Background(), http.MethodPost, "/v1/daemons", body, &doc); err != nil {
 		return err
 	}
@@ -81,6 +82,38 @@ func tell(args []string) error {
 	}
 	fmt.Printf("sent %s to %s on thread %s\n", doc.Message, name, doc.Thread)
 	return nil
+}
+
+func model(args []string) error {
+	fs := flag.NewFlagSet("model", flag.ExitOnError)
+	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
+	name, err := parseName(fs, args, "model <name> [<spec>]")
+	if err != nil {
+		return err
+	}
+	client, err := restClient(*aether)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Model string `json:"model"`
+	}
+	method, body := http.MethodGet, any(nil)
+	if spec := fs.Args(); len(spec) > 0 {
+		method, body = http.MethodPatch, map[string]string{"model": spec[0]}
+	}
+	if err := client.Do(context.Background(), method, "/v1/daemons/"+name, body, &doc); err != nil {
+		return err
+	}
+	fmt.Println(modelLabel(doc.Model))
+	return nil
+}
+
+func modelLabel(spec string) string {
+	if spec == "" {
+		return "default"
+	}
+	return spec
 }
 
 func answer(args []string, decision string) error {

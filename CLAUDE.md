@@ -8,7 +8,7 @@ Read `ai_spec.md` before changing anything. It is decided; argue in the spec, no
 - `cmd/aether`: one Go binary. Control plane, host supervisor, and CLI. Stdlib `flag`, no cobra.
 - `internal/store`: SQLite (modernc, no cgo), embedded migrations, outbox, drain loop. Only aether opens the DB.
 - `internal/policy`: env scrub, `realpath` containment, allowlist matching. Security gate; lands before features.
-- `internal/api`: REST under `/v1`. Auth fails closed. No token, no server. Approval rows carry an opaque `state` blob. `GET /threads/{id}/messages` is planned, not MVP.
+- `internal/api`: REST under `/v1`. Auth fails closed. No token, no server. Approval rows carry an opaque `state` blob. Daemon model config lives on the row: `POST /daemons` accepts `model`, `GET`/`PATCH /daemons/{name}` read and set it. `GET /threads/{id}/messages` is planned, not MVP.
 - `internal/inngest`: publisher, Connect, and the static `scheduler.tick` function.
 - `internal/scheduler`: finds due schedules, fires or writes a skipped marker.
 - `internal/host`: supervisor that spawns each daemon's `aether.json` run command with a scrubbed env.
@@ -32,4 +32,4 @@ make build test lint fmt          # Go
 cd packages/daemon && bun test && bun run typecheck
 ```
 
-Env: `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `AETHER_MODEL`, `AETHER_MAX_TURNS`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. See README for running `serve` and `connect`.
+Env: `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `AETHER_MODEL` (fallback only; the daemon row's `model` wins, set with `aether model`), `AETHER_MAX_TURNS`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. See README for running `serve` and `connect`.

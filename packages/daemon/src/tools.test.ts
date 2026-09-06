@@ -21,6 +21,7 @@ function fakeClient(fake: Fake): AetherClient {
     putMarker: unused,
     requestApproval: unused,
     getThread: unused,
+    getDaemon: unused,
     getApproval: unused,
     async matchCall(_daemon, _thread, call) {
       fake.matched.push(call);

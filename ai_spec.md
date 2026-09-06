@@ -42,8 +42,8 @@ droplet                                  laptop
   each one's manifest.
 - **A daemon** is a directory on one host, run as its own Inngest app `daemon-<name>`. Wherever it connects
   from is where it lives. The agent is the daemon: `@aether/daemon` builds one OpenAI Agents JS agent per turn.
-  Aether holds soul, memory, threads, approvals, and the allowlist, and enforces policy. Providers sit behind one
-  model adapter and `AETHER_MODEL` picks one; `scripted` is the offline stub. One app per daemon holds into the tens; past that, consolidate to one app per host,
+  Aether holds soul, memory, threads, approvals, the allowlist, and the daemon's model, and enforces policy. Providers sit behind one
+  model adapter. The model is operator configuration on the daemon row (`daemons.model`), not a deployment setting; `AETHER_MODEL` is only the fallback default. Spec format `openai:<model>`, `anthropic:<model>`, or `scripted` for the offline stub. One app per daemon holds into the tens; past that, consolidate to one app per host,
   still filtering on `event.data.daemon`.
 - **SQLite** holds daemons, souls, memory, threads, messages, approvals, schedules, and hosts. Soul and
   memory are whole documents in rows, and every write is versioned.
@@ -76,6 +76,7 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 - Approval pause is REST, not an event. The daemon posts the pending calls with the paused run's state; `contract/events.json` is unchanged. A later pause for the same call supersedes the earlier state.
 - Turn function retries at least 5. Routing-level `connect_no_healthy_connection` consumes one per attempt, so the budget must outlast a reconnect.
 - `GET /threads/{id}/messages` is planned, not MVP.
+- Model is a daemon field over REST. `POST /daemons` accepts `model`, `GET /daemons/{name}` returns it, `PATCH /daemons/{name}` with `{model}` sets it. The SDK reads the daemon doc in the turn's `load` step, so a change applies on the next turn.
 
 ## Scheduling
 
@@ -108,14 +109,15 @@ After MVP.
 ## Lifecycle
 
 - `aether connect` registers this machine, stores a host token, installs a service, starts `host-<machine>`.
-- `aether conjure <name> [--host h]` inserts a row and sends `daemon/conjure.requested` with language `ts`. The host
+- `aether conjure <name> [--host h] [--model spec]` inserts a row and sends `daemon/conjure.requested` with language `ts`. The host
   scaffolds a TypeScript project, installs, runs `git init`, and spawns the manifest's `run`. Language selection comes with future SDKs.
+- `aether model <name> [<spec>]` shows or sets the daemon's model. Sets `daemons.model` through `PATCH /daemons/{name}`; takes effect on the next turn, no restart.
 - `aether daemon <name> deploy` sends `daemon/deploy.requested`. The host pulls, installs, restarts. Aether then compares the synced function set to the pre-deploy set and marks the deploy failed if it regressed.
 - `aether dismiss <name>` archives the row and sends `daemon/dismiss.requested`. The host stops the child.
 - `aether tell <name> <text>` sends `aether/message.sent`. `aether summon <name>` opens the TUI on one daemon.
 - On boot a host reads its daemons from aether and spawns any not running. Spawning is idempotent.
 - One connected worker per daemon app is a host-supervisor rule: one process per daemon, and the daemon connects with worker concurrency 1.
-- Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) pass through the host's scrubbed env to daemon processes.
+- Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) pass through the host's scrubbed env to daemon processes. The model itself is not env; it lives on the daemon row.
 
 A daemon directory is a git repo. The host reads one file in it:
 
@@ -152,7 +154,7 @@ external conversation to a thread and renders `daemon/message.replied` back. Tel
 
 ## Packages
 
-- `@aether/daemon` (npm): the SDK on OpenAI Agents JS. Turn loop, tools, approval pause, aether client. OpenAI direct; Anthropic through the AI SDK adapter. Function tools only; hosted tools are excluded so tools stay portable. One step per model call and per tool call. Memory is a post-turn extraction step: a tool-less agent rewrites the memory document, put with the version loaded at start, conflict leaves a marker.
+- `@aether/daemon` (npm): the SDK on OpenAI Agents JS. Turn loop, tools, approval pause, aether client. OpenAI direct; Anthropic through the AI SDK adapter. Model precedence per turn: explicit `defineDaemon({ model })`, then the daemon row, then `AETHER_MODEL`, then `openai:gpt-5.4-mini`. Function tools only; hosted tools are excluded so tools stay portable. One step per model call and per tool call. Memory is a post-turn extraction step: a tool-less agent rewrites the memory document, put with the version loaded at start, conflict leaves a marker.
 - `@aether/client` (after MVP): shared client for TypeScript surfaces.
 - `aether` (Go): REST, SQLite, channels, schedule clock, host and daemon registry, the CLI.
 - `aether-daemon` (PyPI, future): Python daemon SDK on the same REST/event contract.

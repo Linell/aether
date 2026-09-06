@@ -38,6 +38,8 @@ func main() {
 		fatalOnErr(conjure(os.Args[2:]))
 	case "tell":
 		fatalOnErr(tell(os.Args[2:]))
+	case "model":
+		fatalOnErr(model(os.Args[2:]))
 	case "approve":
 		fatalOnErr(answer(os.Args[2:], "approved"))
 	case "deny":
@@ -65,6 +67,7 @@ commands:
   connect   register this machine as a host and supervise its daemons
   conjure   create a daemon and ask its host to scaffold it
   tell      send text to a daemon's thread
+  model     show or set a daemon's model spec
   approve   approve a pending tool call
   deny      deny a pending tool call
   version   print the aether version`)

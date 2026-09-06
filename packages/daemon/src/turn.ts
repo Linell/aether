@@ -1,7 +1,7 @@
 import { Agent, MaxTurnsExceededError, Runner, RunState, type AgentInputItem, type RunToolApprovalItem } from "@openai/agents";
 import { NonRetriableError } from "inngest";
 import { z } from "zod";
-import { AetherHttpError, type AetherClient, type Approval, type MarkerKind, type Thread } from "./client";
+import { AetherHttpError, type AetherClient, type Approval, type Daemon, type MarkerKind, type Thread } from "./client";
 import {
   Events,
   type ApprovalAnsweredPayload,
@@ -26,7 +26,7 @@ export interface TurnContext {
   daemon: string;
   runId: string;
   client: AetherClient;
-  model: Model;
+  resolveModel: (daemon: Daemon) => Model;
   tools: ToolFactory[];
   step: StepLike;
   maxTurns: number;
@@ -51,6 +51,12 @@ interface Docs {
   memory: string;
   memoryVersion: number;
   thread: Thread;
+  daemon: Daemon;
+}
+
+interface Loaded {
+  docs: Docs;
+  model: Model;
 }
 
 export function isStale(deadlineAt: string, now: Date): boolean {
@@ -69,9 +75,14 @@ export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnR
   }
   if (event.name === Events.ApprovalAnswered && "approval" in event.data) return resume(ctx, event.data);
   const input = turnInputFor(event);
-  const docs = await ctx.step.run("load", () => loadDocs(ctx, input.thread));
-  const agent = agentFor(ctx, docs);
-  return conclude(ctx, docs, await runAgent(ctx, agent, input.text));
+  const loaded = await load(ctx, input.thread);
+  const agent = agentFor(ctx, loaded.docs);
+  return conclude(ctx, loaded, await runAgent(ctx, loaded.model, agent, input.text));
+}
+
+async function load(ctx: TurnContext, thread: string): Promise<Loaded> {
+  const docs = await ctx.step.run("load", () => loadDocs(ctx, thread));
+  return { docs, model: ctx.resolveModel(docs.daemon) };
 }
 
 function stale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<boolean> {
@@ -82,13 +93,13 @@ function stale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<boolean> {
 async function resume(ctx: TurnContext, data: ApprovalAnsweredPayload): Promise<TurnResult> {
   const approval = await ctx.step.run("approval", () => ctx.client.getApproval(data.approval));
   if (approval.status === "pending" || approval.state === undefined) return { status: "ignored" };
-  const docs = await ctx.step.run("load", () => loadDocs(ctx, data.thread));
-  const agent = agentFor(ctx, docs);
+  const loaded = await load(ctx, data.thread);
+  const agent = agentFor(ctx, loaded.docs);
   const state = await RunState.fromString(agent, approval.state);
   const item = state.getInterruptions().find((i) => callIdOf(i) === approval.call.id);
   if (!item) return { status: "ignored" };
   decide(state, item, approval);
-  return conclude(ctx, docs, await runAgent(ctx, agent, state));
+  return conclude(ctx, loaded, await runAgent(ctx, loaded.model, agent, state));
 }
 
 function decide(state: RunState<unknown, Agent>, item: RunToolApprovalItem, approval: Approval): void {
@@ -110,8 +121,8 @@ function agentFor(ctx: TurnContext, docs: Docs): Agent {
   return new Agent({ name: ctx.daemon, instructions, tools });
 }
 
-async function runAgent(ctx: TurnContext, agent: Agent, input: string | AgentInputItem[] | RunState<unknown, Agent>) {
-  const runner = new Runner({ model: ctx.model, tracingDisabled: true });
+async function runAgent(ctx: TurnContext, model: Model, agent: Agent, input: string | AgentInputItem[] | RunState<unknown, Agent>) {
+  const runner = new Runner({ model, tracingDisabled: true });
   try {
     return await runner.run(agent, input, { maxTurns: ctx.maxTurns });
   } catch (err) {
@@ -122,11 +133,11 @@ async function runAgent(ctx: TurnContext, agent: Agent, input: string | AgentInp
 
 type Run = Awaited<ReturnType<typeof runAgent>>;
 
-async function conclude(ctx: TurnContext, docs: Docs, result: Run): Promise<TurnResult> {
+async function conclude(ctx: TurnContext, { docs, model }: Loaded, result: Run): Promise<TurnResult> {
   if (result.interruptions.length > 0) return pause(ctx, docs.thread, result);
   const reply = String(result.finalOutput ?? "");
   await ctx.step.run("reply", () => ctx.client.reply(docs.thread.id, reply, `${ctx.runId}:reply`));
-  await remember(ctx, docs, result.history);
+  await remember(ctx, { docs, model }, result.history);
   return { status: "replied", reply };
 }
 
@@ -158,9 +169,9 @@ function parseArgs(text: string | undefined): Record<string, unknown> {
   return Args.parse(JSON.parse(text ?? "{}"));
 }
 
-async function remember(ctx: TurnContext, docs: Docs, history: AgentInputItem[]): Promise<void> {
+async function remember(ctx: TurnContext, { docs, model }: Loaded, history: AgentInputItem[]): Promise<void> {
   const agent = new Agent({ name: `${ctx.daemon}-memory`, instructions: memoryInstructions(ctx.daemon, docs.memory) });
-  const result = await runAgent(ctx, agent, history);
+  const result = await runAgent(ctx, model, agent, history);
   const next = String(result.finalOutput ?? "").trim();
   if (next.length === 0 || next === docs.memory.trim()) return;
   await ctx.step.run("put-memory", () => writeMemory(ctx, docs.thread.id, next, docs.memoryVersion));
@@ -182,12 +193,13 @@ export async function skipStale(ctx: TurnContext, data: ScheduleFiredPayload): P
 }
 
 async function loadDocs(ctx: TurnContext, thread: string): Promise<Docs> {
-  const [soul, memory, t] = await Promise.all([
+  const [soul, memory, t, daemon] = await Promise.all([
     ctx.client.getSoul(ctx.daemon).catch(emptyOn404),
     ctx.client.getMemory(ctx.daemon),
     ctx.client.getThread(thread),
+    ctx.client.getDaemon(ctx.daemon),
   ]);
-  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version, thread: t };
+  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version, thread: t, daemon };
 }
 
 function emptyOn404(err: unknown) {

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ModelRequest } from "@openai/agents";
-import { modelFor, parseModelSpec } from "./model";
+import type { Daemon } from "./client";
+import { modelFor, modelSpecFor, parseModelSpec } from "./model";
 import type { StepLike } from "./turn";
 
 const step: StepLike = { run: (_id, fn) => fn() };
@@ -10,10 +11,19 @@ function request(input: ModelRequest["input"]): ModelRequest {
 }
 
 test("parseModelSpec defaults to openai and splits provider from name", () => {
-  expect(parseModelSpec({})).toEqual({ provider: "openai", name: "gpt-5.4-mini" });
-  expect(parseModelSpec({ AETHER_MODEL: "anthropic:claude-sonnet-5" })).toEqual({ provider: "anthropic", name: "claude-sonnet-5" });
-  expect(parseModelSpec({ AETHER_MODEL: "scripted" })).toEqual({ provider: "scripted", name: "scripted" });
-  expect(() => parseModelSpec({ AETHER_MODEL: "gemini:pro" })).toThrow("unrecognized");
+  expect(parseModelSpec(undefined)).toEqual({ provider: "openai", name: "gpt-5.4-mini" });
+  expect(parseModelSpec("anthropic:claude-sonnet-5")).toEqual({ provider: "anthropic", name: "claude-sonnet-5" });
+  expect(parseModelSpec("scripted")).toEqual({ provider: "scripted", name: "scripted" });
+  expect(() => parseModelSpec("gemini:pro")).toThrow("unrecognized");
+});
+
+const doc: Daemon = { name: "foo", host: "h1", class: "worker", offline_policy: "skip", status: "online" };
+
+test("modelSpecFor prefers the daemon doc, then the env, then the default", () => {
+  const env = { AETHER_MODEL: "openai:gpt-5.4" };
+  expect(modelSpecFor({ ...doc, model: "scripted" }, env)).toEqual({ provider: "scripted", name: "scripted" });
+  expect(modelSpecFor(doc, env)).toEqual({ provider: "openai", name: "gpt-5.4" });
+  expect(modelSpecFor(undefined, {})).toEqual({ provider: "openai", name: "gpt-5.4-mini" });
 });
 
 test("scripted model asks for two shell calls, then reports their output", async () => {

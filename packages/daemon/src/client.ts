@@ -28,6 +28,15 @@ export interface Marker {
   detail: string;
 }
 
+export interface Daemon {
+  name: string;
+  host: string;
+  class: string;
+  offline_policy: string;
+  status: string;
+  model?: string;
+}
+
 export interface Thread {
   id: string;
   daemon: string;
@@ -67,6 +76,7 @@ export interface AetherClient {
   putMarker(daemon: string, marker: Marker): Promise<void>;
   requestApproval(thread: string, calls: ToolCall[], state: string): Promise<{ approval: string; approvals: string[] }>;
   getThread(id: string): Promise<Thread>;
+  getDaemon(name: string): Promise<Daemon>;
   getApproval(id: string): Promise<Approval>;
   matchCall(daemon: string, thread: string, call: ToolCall): Promise<MatchResult>;
   claimOperation(id: string, kind: string): Promise<boolean>;
@@ -108,6 +118,7 @@ export function createClient(options: CreateClientOptions): AetherClient {
     },
     requestApproval: (thread, calls, state) => request("POST", `/threads/${thread}/approvals`, { calls, state }),
     getThread: (id) => request("GET", `/threads/${id}`),
+    getDaemon: (name) => request("GET", `/daemons/${name}`),
     getApproval: (id) => request("GET", `/approvals/${id}`),
     matchCall: (daemon, thread, call) => request("POST", `/daemons/${daemon}/allowlist/match`, { thread, call }),
     async claimOperation(id, kind) {

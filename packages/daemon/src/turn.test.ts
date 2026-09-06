@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AetherHttpError, type AetherClient, type Approval, type Marker } from "./client";
+import { AetherHttpError, type AetherClient, type Approval, type Daemon, type Marker } from "./client";
 import { Events, type ToolCall } from "./contract";
 import { modelFor } from "./model";
 import { shell } from "./tools";
@@ -35,6 +35,7 @@ function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
       return { approval: "a1", approvals: calls.map((c) => `a:${c.id}`) };
     },
     getThread: async (id) => ({ id, daemon: "foo", host: "h1", directory: dir }),
+    getDaemon: async (name) => ({ name, host: "h1", class: "worker", offline_policy: "skip", status: "online", model: "scripted" }),
     async getApproval() {
       if (!opts.approval) throw new AetherHttpError(404, "not found");
       return opts.approval;
@@ -58,9 +59,12 @@ function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
   return { client, seen };
 }
 
-function ctx(client: AetherClient, runId = "run-1"): TurnContext {
-  const model = modelFor({ provider: "scripted", name: "scripted" }, passthrough);
-  return { daemon: "foo", runId, client, model, tools: [shell], step: passthrough, maxTurns: 10, now: () => now };
+function ctx(client: AetherClient, runId = "run-1", resolved: Daemon[] = []): TurnContext {
+  const resolveModel = (doc: Daemon) => {
+    resolved.push(doc);
+    return modelFor({ provider: "scripted", name: "scripted" }, passthrough);
+  };
+  return { daemon: "foo", runId, client, resolveModel, tools: [shell], step: passthrough, maxTurns: 10, now: () => now };
 }
 
 const message = { name: Events.MessageSent, data: { daemon: "foo", thread: "t1", message: "m1", text: "hello" } };
@@ -74,8 +78,10 @@ async function paused() {
 describe("runTurn", () => {
   test("allowed calls run and the reply carries their output", async () => {
     const { client, seen } = fakeClient({ allowed: true });
-    const result = await runTurn(ctx(client), message);
+    const resolved: Daemon[] = [];
+    const result = await runTurn(ctx(client, "run-1", resolved), message);
     expect(result).toEqual({ status: "replied", reply: "done: alpha, beta" });
+    expect(resolved.map((d) => d.model)).toEqual(["scripted"]);
     expect(seen.claims).toEqual(["call_a", "call_b"]);
     expect(seen.replies).toEqual([{ thread: "t1", text: "done: alpha, beta", id: "run-1:reply" }]);
     expect(seen.memory).toHaveLength(1);

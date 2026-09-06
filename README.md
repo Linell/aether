@@ -19,7 +19,7 @@ Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refus
 
 You need Go, bun, Node (for `npx`), and curl. `serve` listens on 8080 and the dev server on 8288 by default.
 
-Daemons pick a model from `AETHER_MODEL`: `openai:<model>` (default `openai:gpt-5.4-mini`), `anthropic:<model>`, or `scripted` for an offline stub. Set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to match; `connect` passes both through to daemon processes. `AETHER_MAX_TURNS` caps model calls per turn (default 50).
+Each daemon's model is stored on its row in aether. Set it with `aether conjure <name> --model <spec>` or later with `aether model <name> <spec>`; `aether model <name>` shows it. Specs are `openai:<model>`, `anthropic:<model>`, or `scripted` for an offline stub. The SDK reads the row at the start of every turn, so a change applies on the next turn with no restart. Precedence: `defineDaemon({ model })` in the daemon's code, then the row, then `AETHER_MODEL`, then `openai:gpt-5.4-mini`. `AETHER_MODEL` is the fallback default, not the primary control. Set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to match; `connect` passes both through to daemon processes. `AETHER_MAX_TURNS` caps model calls per turn (default 50).
 
 Every `aether` command also reads `.env` from the working directory, filling in variables the shell has not already set. Copy `.env.example` to `.env` (git ignores it) and fill in the keys once.
 
@@ -37,7 +37,8 @@ export AETHER_TOKEN=$(openssl rand -hex 32) INNGEST_EVENT_KEY=... INNGEST_SIGNIN
 make build
 bin/aether serve   --db aether.db --listen :8080
 bin/aether connect --aether http://127.0.0.1:8080 --root ./daemons
-bin/aether conjure foo                 # --host defaults to this machine
+bin/aether conjure foo                 # --host defaults to this machine; --model sets the spec
+bin/aether model foo anthropic:claude-sonnet-4-5   # or omit the spec to show it
 bin/aether tell foo remember to water the plants
 bin/aether tell foo run echo hi        # outside the allowlist: pauses for approval
 bin/aether approve <approval-id>       # or deny; Telegram buttons hit the same path
@@ -79,13 +80,13 @@ Following the order in the spec:
 3. `@aether/daemon` runtime, `conjure` and `tell`, one daemon, the morning review. Done.
 4. Telegram: approvals out, then messages in. Done.
 5. MVP completion checks: retry dedupe, approval recovery after restart, failure and stale-work markers. Next.
-6. Agent runtime: OpenAI Agents JS turn, provider selection via `AETHER_MODEL`, approval state round trip, post-turn memory extraction. In progress.
+6. Agent runtime: OpenAI Agents JS turn, per-daemon model on the row (`AETHER_MODEL` as fallback), approval state round trip, post-turn memory extraction. In progress.
 
 Manual run, 2026-09-06, against a local Inngest dev server (Cloud keys were not on the build machine; the Cloud pass is still owed): `serve` and `connect --name devhost` connected as `aether` and `host-devhost`; `conjure foo --host devhost` scaffolded `daemons/foo`, ran `bun install` and `git init`, and `daemon-foo` connected with `turn`; `tell foo remember to water the plants` produced the assistant reply and memory v1; a `morning-review` schedule due the next minute fired through `scheduler.tick`, and the daemon replied with the review and wrote memory v2. Outbox rows all published, no markers written.
 
 Manual run, 2026-09-06, local Inngest dev server plus a fake Telegram Bot API (a bun server recording every `sendMessage`): `serve --allowlist` (rule: `shell ls ...`) and `connect --name devhost` came up with `aether` registering `scheduler.tick`, `telegram-approval`, and `telegram-reply`; `conjure foo` scaffolded and `daemon-foo` connected with `turn`. A webhook text `hello` from chat 42 bound the chat to foo's default thread and the reply reached the fake chat; `run echo approved-run` paused the turn (`turn.paused` marker, one `daemon/approval.requested`), and the approval landed in the fake chat with Approve/Deny buttons. Answering through the webhook callback recorded one decision (a replayed `update_id` and a later deny were ignored), the daemon claimed one `tool.call` operation, ran the command once, and the output reached both the thread and the chat. Then `run echo after-restart` was left pending while `serve` and `connect` were stopped and restarted; approving after the restart ran it once with the same result. `tell foo run ls` ran without an approval row. Every outbox row published, no failure markers.
 
-Today the CLI has `serve`, `connect`, `conjure`, `tell`, `approve`, `deny`, and `version`. REST covers daemons, messages, thread replies, approval requests and answers, allowlist matching, operation claims, markers, soul and memory, schedules, hosts, and the Telegram webhook. The SDK connects over Inngest Connect and builds one OpenAI Agents JS agent per turn, with each model call and tool call behind its own step. `AETHER_MODEL` picks the provider: OpenAI directly, Anthropic through the AI SDK adapter, or `scripted` offline. An unmatched tool call pauses the run; the daemon posts the calls plus the serialized run state to the approval row, the run ends, and `aether/approval.answered` starts a new run that restores that state, answers the call, and continues (or pauses again). Every tool execution claims its operation ID first. After a reply, a tool-less agent rewrites memory and puts it against the version loaded at start. The `shell` tool runs with a scrubbed env inside the thread directory, stale schedules leave a marker, and `defineDaemon({ model, tools })` swaps either.
+Today the CLI has `serve`, `connect`, `conjure` (with `--model`), `model`, `tell`, `approve`, `deny`, and `version`. REST covers daemons (`POST /daemons` with `model`, `GET` and `PATCH /daemons/{name}`), messages, thread replies, approval requests and answers, allowlist matching, operation claims, markers, soul and memory, schedules, hosts, and the Telegram webhook. The SDK connects over Inngest Connect and builds one OpenAI Agents JS agent per turn, with each model call and tool call behind its own step. The daemon row's `model` picks the provider, with `AETHER_MODEL` as the fallback: OpenAI directly, Anthropic through the AI SDK adapter, or `scripted` offline. An unmatched tool call pauses the run; the daemon posts the calls plus the serialized run state to the approval row, the run ends, and `aether/approval.answered` starts a new run that restores that state, answers the call, and continues (or pauses again). Every tool execution claims its operation ID first. After a reply, a tool-less agent rewrites memory and puts it against the version loaded at start. The `shell` tool runs with a scrubbed env inside the thread directory, stale schedules leave a marker, and `defineDaemon({ model, tools })` swaps either.
 
 ## Going live
 

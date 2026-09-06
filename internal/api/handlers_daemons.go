@@ -8,6 +8,48 @@ import (
 	"github.com/linell/aether/internal/store"
 )
 
+func (s *server) handleGetDaemon(w http.ResponseWriter, r *http.Request) {
+	doc, err := daemonByName(r.Context(), s.store.DB(), r.PathValue("name"))
+	respond(w, http.StatusOK, doc, err)
+}
+
+type patchDaemonBody struct {
+	Model string `json:"model"`
+}
+
+func (s *server) handlePatchDaemon(w http.ResponseWriter, r *http.Request) {
+	var body patchDaemonBody
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := validateModel(body.Model); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	doc, err := s.setDaemonModel(r.Context(), r.PathValue("name"), body.Model)
+	respond(w, http.StatusOK, doc, err)
+}
+
+func (s *server) setDaemonModel(ctx context.Context, name, model string) (daemonDoc, error) {
+	var doc daemonDoc
+	err := s.store.Tx(ctx, func(tx *store.Tx) error {
+		out, err := tx.ExecContext(ctx, `UPDATE daemons SET model = NULLIF(?, '') WHERE name = ?`, model, name)
+		if err != nil {
+			return err
+		}
+		ok, err := inserted(out)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errNotFound
+		}
+		doc, err = daemonByName(ctx, tx, name)
+		return err
+	})
+	return doc, err
+}
+
 type versionedDoc struct {
 	Content string `json:"content"`
 	Version int    `json:"version"`

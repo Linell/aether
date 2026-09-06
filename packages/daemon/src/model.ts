@@ -10,6 +10,7 @@ import {
 } from "@openai/agents";
 import { aisdk } from "@openai/agents-extensions/ai-sdk";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { Daemon } from "./client";
 import type { StepLike } from "./turn";
 
 export type { Model } from "@openai/agents";
@@ -23,14 +24,17 @@ export interface ModelSpec {
 
 export const DefaultModel = "openai:gpt-5.4-mini";
 
-export function parseModelSpec(env: Record<string, string | undefined>): ModelSpec {
-  const raw = env.AETHER_MODEL ?? DefaultModel;
+export function modelSpecFor(daemon: Daemon | undefined, env: Record<string, string | undefined>): ModelSpec {
+  return parseModelSpec(daemon?.model ?? env.AETHER_MODEL);
+}
+
+export function parseModelSpec(raw: string | undefined = DefaultModel): ModelSpec {
   if (raw === "scripted") return { provider: "scripted", name: "scripted" };
   const sep = raw.indexOf(":");
   const provider = raw.slice(0, sep);
   const name = raw.slice(sep + 1);
   if ((provider === "openai" || provider === "anthropic") && name.length > 0) return { provider, name };
-  throw new Error(`AETHER_MODEL: unrecognized ${JSON.stringify(raw)}`);
+  throw new Error(`model spec: unrecognized ${JSON.stringify(raw)}`);
 }
 
 export function modelFor(spec: ModelSpec, step: StepLike): Model {

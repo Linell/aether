@@ -44,6 +44,8 @@ func (s *server) v1() http.Handler {
 	mux.HandleFunc("GET /approvals/{id}", s.handleGetApproval)
 	mux.HandleFunc("POST /approvals/{id}/answer", s.handleAnswerApproval)
 	mux.HandleFunc("POST /daemons", s.handleCreateDaemon)
+	mux.HandleFunc("GET /daemons/{name}", s.handleGetDaemon)
+	mux.HandleFunc("PATCH /daemons/{name}", s.handlePatchDaemon)
 	mux.HandleFunc("POST /daemons/{name}/messages", s.handleCreateMessage)
 	mux.HandleFunc("POST /daemons/{name}/markers", s.handleCreateMarker)
 	mux.HandleFunc("POST /daemons/{name}/allowlist/match", s.handleMatchCall)

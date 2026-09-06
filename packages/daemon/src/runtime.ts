@@ -1,9 +1,9 @@
 import { Inngest, NonRetriableError } from "inngest";
 import { z } from "zod";
 import { connect, type WorkerConnection } from "inngest/connect";
-import { createClient, type AetherClient } from "./client";
+import { createClient, type AetherClient, type Daemon } from "./client";
 import { Events, TurnConcurrency } from "./contract";
-import { modelFor, parseModelSpec, type Model } from "./model";
+import { modelFor, modelSpecFor, type Model } from "./model";
 import { shell, type ToolFactory } from "./tools";
 import { mark, runTurn, type StepLike, type TurnContext, type TurnEvent } from "./turn";
 
@@ -67,9 +67,13 @@ export function turnConfig(name: string) {
   };
 }
 
+export function modelResolver(daemon: DefinedDaemon, step: StepLike, env: Record<string, string | undefined>): (doc: Daemon) => Model {
+  return (doc) => daemon.model ?? modelFor(modelSpecFor(doc, env), step);
+}
+
 function contextFor(daemon: DefinedDaemon, client: AetherClient, runId: string, step: StepLike, env: Record<string, string | undefined>): TurnContext {
-  const model = daemon.model ?? modelFor(parseModelSpec(env), step);
-  return { daemon: daemon.name, runId, client, model, tools: daemon.tools, step, maxTurns: maxTurnsFrom(env) };
+  const resolveModel = modelResolver(daemon, step, env);
+  return { daemon: daemon.name, runId, client, resolveModel, tools: daemon.tools, step, maxTurns: maxTurnsFrom(env) };
 }
 
 export function buildFunctions(inngest: Inngest, daemon: DefinedDaemon, client: AetherClient, env: Record<string, string | undefined> = process.env) {

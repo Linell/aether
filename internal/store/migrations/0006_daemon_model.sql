@@ -1,0 +1,1 @@
+ALTER TABLE daemons ADD COLUMN model TEXT;

@@ -23,6 +23,7 @@ type daemonDoc struct {
 	Class         string `json:"class"`
 	OfflinePolicy string `json:"offline_policy"`
 	Status        string `json:"status"`
+	Model         string `json:"model,omitempty"`
 }
 
 type createDaemonBody struct {
@@ -30,6 +31,7 @@ type createDaemonBody struct {
 	Host          string `json:"host"`
 	Class         string `json:"class"`
 	OfflinePolicy string `json:"offline_policy"`
+	Model         string `json:"model"`
 }
 
 func (s *server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +61,10 @@ func validateDaemon(body createDaemonBody) error {
 	if body.Class != "anchored" && body.Class != "opportunistic" {
 		return fmt.Errorf("invalid class: %q", body.Class)
 	}
-	return validatePolicy(body.OfflinePolicy, nil)
+	if err := validatePolicy(body.OfflinePolicy, nil); err != nil {
+		return err
+	}
+	return validateModel(body.Model)
 }
 
 func (s *server) createDaemon(ctx context.Context, body createDaemonBody) (daemonDoc, bool, error) {
@@ -83,8 +88,8 @@ func (s *server) createDaemon(ctx context.Context, body createDaemonBody) (daemo
 
 func insertDaemon(ctx context.Context, tx store.DBTX, body createDaemonBody, hostID string) (bool, error) {
 	out, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO daemons (id, name, host_id, class, offline_policy) VALUES (?, ?, ?, ?, ?)`,
-		store.NewID(), body.Name, hostID, body.Class, body.OfflinePolicy)
+		`INSERT OR IGNORE INTO daemons (id, name, host_id, class, offline_policy, model) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''))`,
+		store.NewID(), body.Name, hostID, body.Class, body.OfflinePolicy, body.Model)
 	if err != nil {
 		return false, err
 	}
@@ -109,8 +114,8 @@ func enqueueConjure(ctx context.Context, tx *store.Tx, doc daemonDoc, host strin
 func daemonByName(ctx context.Context, q store.DBTX, name string) (daemonDoc, error) {
 	var d daemonDoc
 	err := lookup(ctx, q,
-		`SELECT d.id, d.name, h.name, d.class, d.offline_policy, d.status
+		`SELECT d.id, d.name, h.name, d.class, d.offline_policy, d.status, COALESCE(d.model, '')
 		 FROM daemons d JOIN hosts h ON h.id = d.host_id WHERE d.name = ?`,
-		name, &d.ID, &d.Name, &d.Host, &d.Class, &d.OfflinePolicy, &d.Status)
+		name, &d.ID, &d.Name, &d.Host, &d.Class, &d.OfflinePolicy, &d.Status, &d.Model)
 	return d, err
 }
