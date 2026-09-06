@@ -3,21 +3,24 @@ import { connect, type WorkerConnection } from "inngest/connect";
 import { createClient, type AetherClient } from "./client";
 import { Events, TurnConcurrency } from "./contract";
 import { templateModel, type Model } from "./model";
+import { shell, toolMap, type Tool } from "./tools";
 import { mark, runTurn, type StepLike, type TurnEvent } from "./turn";
 
 export interface DefineDaemonOptions {
   name: string;
   model?: Model;
+  tools?: Tool[];
 }
 
 export interface DefinedDaemon {
   name: string;
   model: Model;
+  tools: Record<string, Tool>;
   _brand: "aether-daemon";
 }
 
 export function defineDaemon(opts: DefineDaemonOptions): DefinedDaemon {
-  return { name: opts.name, model: opts.model ?? templateModel, _brand: "aether-daemon" };
+  return { name: opts.name, model: opts.model ?? templateModel, tools: toolMap(opts.tools ?? [shell]), _brand: "aether-daemon" };
 }
 
 export function appId(name: string): string {
@@ -31,6 +34,7 @@ export function turnConfig(name: string) {
     triggers: [
       { event: Events.MessageSent, if: filter },
       { event: Events.ScheduleFired, if: filter },
+      { event: Events.ApprovalAnswered, if: filter },
     ],
     concurrency: { key: TurnConcurrency.key, limit: TurnConcurrency.limit },
     retries: 3 as const,
@@ -43,13 +47,14 @@ export function buildFunctions(inngest: Inngest, daemon: DefinedDaemon, client: 
       ...turnConfig(daemon.name),
       onFailure: async ({ event, runId }) => {
         const original = event.data.event as unknown as TurnEvent;
-        const ctx = { daemon: daemon.name, runId, client, model: daemon.model, step: passthrough };
+        const ctx = { daemon: daemon.name, runId, client, model: daemon.model, tools: daemon.tools, step: passthrough };
         await mark(ctx, "turn.failed", original.data.thread, event.data.run_id, event.data.error);
       },
     },
     async ({ event, step, runId }) => {
       const steps: StepLike = { run: (id, fn) => step.run(id, fn) as Promise<never> };
-      return runTurn({ daemon: daemon.name, runId, client, model: daemon.model, step: steps }, event as unknown as TurnEvent);
+      const ctx = { daemon: daemon.name, runId, client, model: daemon.model, tools: daemon.tools, step: steps };
+      return runTurn(ctx, event as unknown as TurnEvent);
     },
   );
   return [turn];

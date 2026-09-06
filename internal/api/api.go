@@ -6,26 +6,34 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/linell/aether/internal/policy"
 	"github.com/linell/aether/internal/store"
 )
 
 type server struct {
 	store *store.Store
+	rules []policy.Rule
 }
 
-func New(st *store.Store, token string) (http.Handler, error) {
-	if token == "" {
+type Options struct {
+	Token string
+	Rules []policy.Rule
+}
+
+func New(st *store.Store, o Options) (http.Handler, error) {
+	if o.Token == "" {
 		return nil, errors.New("api: token must not be empty")
 	}
-	s := &server{store: st}
+	s := &server{store: st, rules: o.Rules}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/v1/", http.StripPrefix("/v1", s.v1()))
-	return withAuth(mux, token), nil
+	return withAuth(mux, o.Token), nil
 }
 
 func (s *server) v1() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /threads/{id}", s.handleGetThread)
 	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
 	mux.HandleFunc("GET /approvals/{id}", s.handleGetApproval)
@@ -33,12 +41,14 @@ func (s *server) v1() http.Handler {
 	mux.HandleFunc("POST /daemons", s.handleCreateDaemon)
 	mux.HandleFunc("POST /daemons/{name}/messages", s.handleCreateMessage)
 	mux.HandleFunc("POST /daemons/{name}/markers", s.handleCreateMarker)
+	mux.HandleFunc("POST /daemons/{name}/allowlist/match", s.handleMatchCall)
 	mux.HandleFunc("GET /daemons/{name}/soul", s.handleGetSoul)
 	mux.HandleFunc("GET /daemons/{name}/memory", s.handleGetMemory)
 	mux.HandleFunc("PUT /daemons/{name}/memory", s.handlePutMemory)
 	mux.HandleFunc("GET /daemons/{name}/schedules", s.handleListSchedules)
 	mux.HandleFunc("PUT /daemons/{name}/schedules/{id}", s.handlePutSchedule)
 	mux.HandleFunc("DELETE /daemons/{name}/schedules/{id}", s.handleDeleteSchedule)
+	mux.HandleFunc("POST /operations", s.handleClaimOperation)
 	mux.HandleFunc("POST /hosts", s.handleCreateHost)
 	mux.HandleFunc("GET /hosts/{name}/daemons", s.handleHostDaemons)
 	return mux

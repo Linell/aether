@@ -64,8 +64,8 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 		if err != nil {
 			return err
 		}
-		ids, err = insertApprovals(ctx, tx, threadID, calls)
-		if err != nil {
+		var created bool
+		if ids, created, err = insertApprovals(ctx, tx, threadID, calls); err != nil || !created {
 			return err
 		}
 		_, err = tx.EnqueueOutbox(ctx, contract.EventApprovalRequested, contract.ApprovalRequestedPayload{
@@ -78,18 +78,24 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 	return ids, err
 }
 
-func insertApprovals(ctx context.Context, tx store.DBTX, threadID string, calls []contract.Call) ([]string, error) {
+func insertApprovals(ctx context.Context, tx store.DBTX, threadID string, calls []contract.Call) ([]string, bool, error) {
 	ids := make([]string, len(calls))
+	created := false
 	for i, call := range calls {
-		if _, err := tx.ExecContext(ctx,
+		out, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO approvals (id, thread_id, call_id, tool, args, context) VALUES (?, ?, ?, ?, ?, ?)`,
-			store.NewID(), threadID, call.ID, call.Tool, string(call.Args), string(call.Context),
-		); err != nil {
-			return nil, err
+			store.NewID(), threadID, call.ID, call.Tool, string(call.Args), string(call.Context))
+		if err != nil {
+			return nil, false, err
+		}
+		if n, err := inserted(out); err != nil {
+			return nil, false, err
+		} else if n {
+			created = true
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM approvals WHERE call_id = ?`, call.ID).Scan(&ids[i]); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return ids, nil
+	return ids, created, nil
 }

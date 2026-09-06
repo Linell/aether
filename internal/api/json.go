@@ -25,6 +25,23 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+func decodeRaw(raw json.RawMessage, v any) error {
+	if len(raw) == 0 {
+		return errors.New("empty")
+	}
+	return json.Unmarshal(raw, v)
+}
+
+func requireFields(w http.ResponseWriter, fields ...string) bool {
+	for _, f := range fields {
+		if f == "" {
+			writeError(w, http.StatusBadRequest, "missing required field")
+			return false
+		}
+	}
+	return true
+}
+
 func respond(w http.ResponseWriter, status int, v any, err error) {
 	if err != nil {
 		writeErr(w, err)

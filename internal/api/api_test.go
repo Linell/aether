@@ -7,13 +7,13 @@ import (
 )
 
 func TestNewRejectsEmptyToken(t *testing.T) {
-	if _, err := New(nil, ""); err == nil {
+	if _, err := New(nil, Options{}); err == nil {
 		t.Fatal("New with empty token: want error, got nil")
 	}
 }
 
 func TestAuthFailsClosed(t *testing.T) {
-	h, err := New(nil, "secret")
+	h, err := New(nil, Options{Token: "secret"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

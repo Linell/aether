@@ -18,7 +18,7 @@ export interface Schedule {
 
 export type ScheduleInput = Omit<Schedule, "id" | "daemon" | "next_run_at">;
 
-export type MarkerKind = "schedule.stale" | "turn.failed" | "memory.conflict";
+export type MarkerKind = "schedule.stale" | "turn.failed" | "turn.paused" | "memory.conflict";
 
 export interface Marker {
   id: string;
@@ -26,6 +26,27 @@ export interface Marker {
   thread: string;
   ref: string;
   detail: string;
+}
+
+export interface Thread {
+  id: string;
+  daemon: string;
+  host: string;
+  directory: string;
+}
+
+export interface Approval {
+  id: string;
+  daemon: string;
+  thread: string;
+  status: "pending" | "approved" | "denied";
+  call: ToolCall;
+}
+
+export interface MatchResult {
+  allowed: boolean;
+  rule?: string;
+  reason?: string;
 }
 
 export class AetherHttpError extends Error {
@@ -43,7 +64,11 @@ export class AetherHttpError extends Error {
 export interface AetherClient {
   reply(thread: string, text: string, id?: string): Promise<void>;
   putMarker(daemon: string, marker: Marker): Promise<void>;
-  requestApproval(thread: string, calls: ToolCall[]): Promise<{ approval: string }>;
+  requestApproval(thread: string, calls: ToolCall[]): Promise<{ approval: string; approvals: string[] }>;
+  getThread(id: string): Promise<Thread>;
+  getApproval(id: string): Promise<Approval>;
+  matchCall(daemon: string, thread: string, call: ToolCall): Promise<MatchResult>;
+  claimOperation(id: string, kind: string): Promise<boolean>;
   getSoul(daemon: string): Promise<VersionedDocument>;
   getMemory(daemon: string): Promise<VersionedDocument>;
   putMemory(daemon: string, body: string, expectedVersion: number): Promise<VersionedDocument>;
@@ -81,6 +106,13 @@ export function createClient(options: CreateClientOptions): AetherClient {
       await request("POST", `/daemons/${daemon}/markers`, marker);
     },
     requestApproval: (thread, calls) => request("POST", `/threads/${thread}/approvals`, { calls }),
+    getThread: (id) => request("GET", `/threads/${id}`),
+    getApproval: (id) => request("GET", `/approvals/${id}`),
+    matchCall: (daemon, thread, call) => request("POST", `/daemons/${daemon}/allowlist/match`, { thread, call }),
+    async claimOperation(id, kind) {
+      const res = await request<{ claimed: boolean }>("POST", "/operations", { id, kind });
+      return res.claimed;
+    },
     getSoul: (daemon) => request("GET", `/daemons/${daemon}/soul`),
     getMemory: (daemon) => request("GET", `/daemons/${daemon}/memory`),
     putMemory: (daemon, body, expectedVersion) =>

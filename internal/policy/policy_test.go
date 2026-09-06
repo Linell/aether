@@ -115,3 +115,31 @@ func TestResolveWithinAllowsRootItself(t *testing.T) {
 		t.Errorf("ResolveWithin(root) = %q, want %q", got, resolvedRoot)
 	}
 }
+
+func TestMatchShellRules(t *testing.T) {
+	root := t.TempDir()
+	rules := []Rule{{Daemon: "foo", Tool: "shell", Argv: []string{"ls", "..."}}, {Tool: "shell", Argv: []string{"git", "*"}}}
+	cases := []struct {
+		name, daemon, args string
+		want               bool
+	}{
+		{"trailing args", "foo", `{"argv":["ls","-la","sub"]}`, true},
+		{"other daemon", "bar", `{"argv":["ls"]}`, false},
+		{"wildcard arg", "bar", `{"argv":["git","status"]}`, true},
+		{"too many args", "bar", `{"argv":["git","push","--force"]}`, false},
+		{"path escapes root", "foo", `{"argv":["ls","../.."]}`, false},
+		{"flag path escapes root", "foo", `{"argv":["ls","--dir=/etc"]}`, false},
+		{"cwd escapes root", "foo", `{"argv":["ls"],"cwd":".."}`, false},
+		{"unknown tool", "foo", `{}`, false},
+	}
+	for _, tc := range cases {
+		tool := "shell"
+		if tc.name == "unknown tool" {
+			tool = "http"
+		}
+		_, got := Match(rules, Request{Daemon: tc.daemon, Tool: tool, Args: []byte(tc.args), Cwd: root})
+		if got != tc.want {
+			t.Errorf("%s: match = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

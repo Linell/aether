@@ -16,6 +16,7 @@ import (
 	"github.com/linell/aether/internal/api"
 	"github.com/linell/aether/internal/host"
 	"github.com/linell/aether/internal/inngest"
+	"github.com/linell/aether/internal/policy"
 	"github.com/linell/aether/internal/rest"
 	"github.com/linell/aether/internal/store"
 )
@@ -81,18 +82,23 @@ func serve(args []string) error {
 	dbPath := fs.String("db", "aether.db", "SQLite database path")
 	listen := fs.String("listen", ":8080", "listen address")
 	drainEvery := fs.Duration("drain-every", 5*time.Second, "outbox drain interval")
+	allowlist := fs.String("allowlist", "", "JSON file of tool calls that run without approval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	ctx, stop := signalContext()
 	defer stop()
 
+	rules, err := policy.LoadRules(*allowlist)
+	if err != nil {
+		return err
+	}
 	st, err := store.Open(ctx, *dbPath)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer st.Close()
-	handler, err := api.New(st, os.Getenv("AETHER_TOKEN"))
+	handler, err := api.New(st, api.Options{Token: os.Getenv("AETHER_TOKEN"), Rules: rules})
 	if err != nil {
 		return err
 	}

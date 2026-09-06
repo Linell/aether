@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/linell/aether/internal/policy"
 	"github.com/linell/aether/internal/store"
 	"github.com/linell/aether/internal/store/storetest"
 )
@@ -205,5 +206,47 @@ func TestAnswerApprovalOnce(t *testing.T) {
 	}
 	if rec := call(s.handleGetApproval, http.MethodGet, "", map[string]string{"id": "nope"}); rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestMatchCallChecksThreadAndRules(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	s.rules = []policy.Rule{{Tool: "shell", Argv: []string{"ls", "..."}}}
+	path := map[string]string{"name": "daemon-1"}
+	match := func(body string) matchDoc {
+		var doc matchDoc
+		decode(t, call(s.handleMatchCall, http.MethodPost, body, path), &doc)
+		return doc
+	}
+	if doc := match(`{"thread":"t1","call":{"id":"c1","tool":"shell","args":{"argv":["ls"]},"context":{"cwd":"/tmp","host":"host-1"}}}`); !doc.Allowed {
+		t.Errorf("ls: %+v, want allowed", doc)
+	}
+	if doc := match(`{"thread":"t1","call":{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}}`); doc.Allowed {
+		t.Errorf("rm: %+v, want denied", doc)
+	}
+	if doc := match(`{"thread":"t1","call":{"id":"c1","tool":"shell","args":{"argv":["ls"]},"context":{"cwd":"/elsewhere","host":"host-1"}}}`); doc.Allowed {
+		t.Errorf("foreign cwd: %+v, want denied", doc)
+	}
+}
+
+func TestClaimOperationOnce(t *testing.T) {
+	s, _ := newTestServer(t)
+	var first, second struct{ Claimed bool }
+	decode(t, call(s.handleClaimOperation, http.MethodPost, `{"id":"op1","kind":"tool.call"}`, nil), &first)
+	decode(t, call(s.handleClaimOperation, http.MethodPost, `{"id":"op1","kind":"tool.call"}`, nil), &second)
+	if !first.Claimed || second.Claimed {
+		t.Errorf("claimed = %v, %v; want true, false", first.Claimed, second.Claimed)
+	}
+}
+
+func TestApprovalsRequestDedupesEvent(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	body := `{"calls":[{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}]}`
+	call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"})
+	call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"})
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'daemon/approval.requested'`); n != 1 {
+		t.Errorf("outbox count = %d, want 1", n)
 	}
 }

@@ -4,9 +4,9 @@ import { Events } from "./contract";
 import { appId, buildFunctions, defineDaemon, turnConfig } from "./runtime";
 import { createClient } from "./client";
 
-test("turn filters both triggers on the daemon and serializes per thread", () => {
+test("turn filters all triggers on the daemon and serializes per thread", () => {
   const config = turnConfig("foo");
-  expect(config.triggers.map((t) => t.event)).toEqual([Events.MessageSent, Events.ScheduleFired]);
+  expect(config.triggers.map((t) => t.event)).toEqual([Events.MessageSent, Events.ScheduleFired, Events.ApprovalAnswered]);
   for (const t of config.triggers) expect(t.if).toBe('event.data.daemon == "foo"');
   expect(config.concurrency).toEqual({ key: "event.data.thread", limit: 1 });
 });
