@@ -28,6 +28,7 @@ func (s *server) v1() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
+	mux.HandleFunc("POST /daemons", s.handleCreateDaemon)
 	mux.HandleFunc("GET /daemons/{name}/soul", s.handleGetSoul)
 	mux.HandleFunc("GET /daemons/{name}/memory", s.handleGetMemory)
 	mux.HandleFunc("PUT /daemons/{name}/memory", s.handlePutMemory)

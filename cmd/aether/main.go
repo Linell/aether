@@ -15,6 +15,7 @@ import (
 	"github.com/linell/aether/internal/api"
 	"github.com/linell/aether/internal/host"
 	"github.com/linell/aether/internal/inngest"
+	"github.com/linell/aether/internal/rest"
 	"github.com/linell/aether/internal/store"
 )
 
@@ -29,6 +30,8 @@ func main() {
 		fatalOnErr(serve(os.Args[2:]))
 	case "connect":
 		fatalOnErr(connect(os.Args[2:]))
+	case "conjure":
+		fatalOnErr(conjure(os.Args[2:]))
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -50,6 +53,7 @@ func usage() {
 commands:
   serve     open the store and start the REST server
   connect   register this machine as a host and supervise its daemons
+  conjure   create a daemon and ask its host to scaffold it
   version   print the aether version`)
 }
 
@@ -136,7 +140,7 @@ func connect(args []string) error {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	return runHost(ctx, &host.Client{BaseURL: *aether, Token: token, Host: *name}, *root, *every)
+	return runHost(ctx, &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name}, *root, *every)
 }
 
 func runHost(ctx context.Context, client *host.Client, root string, every time.Duration) error {

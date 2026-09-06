@@ -1,0 +1,59 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+
+	"github.com/linell/aether/internal/rest"
+)
+
+func restClient(aether string) (*rest.Client, error) {
+	token := os.Getenv("AETHER_TOKEN")
+	if token == "" {
+		return nil, errors.New("AETHER_TOKEN must not be empty")
+	}
+	return &rest.Client{BaseURL: aether, Token: token}, nil
+}
+
+func conjure(args []string) error {
+	fs := flag.NewFlagSet("conjure", flag.ExitOnError)
+	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
+	host := fs.String("host", "", "host that will run the daemon")
+	class := fs.String("class", "anchored", "daemon class: anchored or opportunistic")
+	policy := fs.String("policy", "queue", "offline policy: queue, skip, or ttl")
+	name, err := parseName(fs, args, "conjure <name> --host h")
+	if err != nil {
+		return err
+	}
+	if *host == "" {
+		return errors.New("--host is required")
+	}
+	client, err := restClient(*aether)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Name string `json:"name"`
+		Host string `json:"host"`
+	}
+	body := map[string]string{"name": name, "host": *host, "class": *class, "offline_policy": *policy}
+	if err := client.Do(context.Background(), http.MethodPost, "/v1/daemons", body, &doc); err != nil {
+		return err
+	}
+	fmt.Printf("conjured %s on %s\n", doc.Name, doc.Host)
+	return nil
+}
+
+func parseName(fs *flag.FlagSet, args []string, usage string) (string, error) {
+	if len(args) == 0 || args[0] == "" {
+		return "", fmt.Errorf("usage: aether %s", usage)
+	}
+	if err := fs.Parse(args[1:]); err != nil {
+		return "", err
+	}
+	return args[0], nil
+}

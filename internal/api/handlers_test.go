@@ -102,3 +102,22 @@ func TestHostsPostIsIdempotent(t *testing.T) {
 		t.Errorf("ids differ: %q vs %q", id1, id2)
 	}
 }
+
+func TestCreateDaemonEnqueuesConjureOnce(t *testing.T) {
+	s, st := newTestServer(t)
+	storetest.Exec(t, st, `INSERT INTO hosts (id, name) VALUES ('h1', 'host-1')`)
+	body := `{"name":"foo","host":"host-1","class":"anchored","offline_policy":"queue"}`
+
+	first := call(s.handleCreateDaemon, http.MethodPost, body, nil)
+	second := call(s.handleCreateDaemon, http.MethodPost, body, nil)
+	if first.Code != http.StatusCreated || second.Code != http.StatusOK {
+		t.Fatalf("status = %d, %d; want 201, 200", first.Code, second.Code)
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'daemon/conjure.requested'`); n != 1 {
+		t.Errorf("outbox count = %d, want 1", n)
+	}
+	rec := call(s.handleCreateDaemon, http.MethodPost, `{"name":"foo","host":"other","class":"anchored","offline_policy":"queue"}`, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown host status = %d, want 404", rec.Code)
+	}
+}

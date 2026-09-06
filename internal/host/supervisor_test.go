@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/linell/aether/internal/rest"
 )
 
 type fakeRegistry struct {
@@ -72,7 +74,7 @@ func TestClientDaemons(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &Client{BaseURL: srv.URL, Token: token, Host: "host-1"}
+	c := &Client{Client: rest.Client{BaseURL: srv.URL, Token: token}, Host: "host-1"}
 	got, err := c.Daemons(context.Background())
 	if err != nil {
 		t.Fatalf("Daemons: %v", err)
