@@ -219,3 +219,27 @@ func TestDrainOutboxFailedPublishIncrementsAttempts(t *testing.T) {
 		t.Fatalf("retry published = %d, want 1", n)
 	}
 }
+
+func TestEnqueueWakesDrainAfterCommit(t *testing.T) {
+	s := openTestStore(t)
+	err := s.Tx(context.Background(), func(tx *sql.Tx) error {
+		_, err := s.EnqueueOutbox(context.Background(), tx, "test/event.happened", nil)
+		if err != nil {
+			return err
+		}
+		select {
+		case <-s.Wake():
+			return errors.New("woke before commit")
+		default:
+			return nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("Tx: %v", err)
+	}
+	select {
+	case <-s.Wake():
+	default:
+		t.Fatal("no wake after commit")
+	}
+}

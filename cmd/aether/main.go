@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/linell/aether/internal/api"
+	"github.com/linell/aether/internal/inngest"
 	"github.com/linell/aether/internal/store"
 )
 
@@ -53,6 +54,7 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "aether.db", "SQLite database path")
 	listen := fs.String("listen", ":8080", "listen address")
+	drainEvery := fs.Duration("drain-every", 5*time.Second, "outbox drain interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -70,8 +72,21 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	pub, err := newInngest()
+	if err != nil {
+		return err
+	}
+	go store.RunDrain(ctx, st, pub, *drainEvery)
 	log.Printf("aether listening on %s (db=%s)", *listen, *dbPath)
 	return runServer(ctx, &http.Server{Addr: *listen, Handler: handler})
+}
+
+func newInngest() (*inngest.Client, error) {
+	opts, err := inngest.OptionsFromEnv(inngest.AppID)
+	if err != nil {
+		return nil, err
+	}
+	return inngest.New(opts)
 }
 
 func runServer(ctx context.Context, srv *http.Server) error {

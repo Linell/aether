@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,7 +25,10 @@ var pragmas = []string{
 }
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	wake  chan struct{}
+	mu    sync.Mutex
+	dirty map[*sql.Tx]struct{}
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -34,7 +38,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	s := &Store{db: db}
+	s := &Store{db: db, wake: make(chan struct{}, 1), dirty: map[*sql.Tx]struct{}{}}
 	if err := s.init(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -61,12 +65,40 @@ func (s *Store) Tx(ctx context.Context, fn func(*sql.Tx) error) error {
 		return fmt.Errorf("store: begin tx: %w", err)
 	}
 	if err := fn(tx); err != nil {
+		s.forget(tx)
 		return errors.Join(err, rollback(tx))
 	}
 	if err := tx.Commit(); err != nil {
+		s.forget(tx)
 		return fmt.Errorf("store: commit tx: %w", err)
 	}
+	if s.forget(tx) {
+		s.notify()
+	}
 	return nil
+}
+
+func (s *Store) Wake() <-chan struct{} { return s.wake }
+
+func (s *Store) mark(tx *sql.Tx) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dirty[tx] = struct{}{}
+}
+
+func (s *Store) forget(tx *sql.Tx) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.dirty[tx]
+	delete(s.dirty, tx)
+	return ok
+}
+
+func (s *Store) notify() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 func rollback(tx *sql.Tx) error {
@@ -146,6 +178,7 @@ func (s *Store) EnqueueOutbox(ctx context.Context, tx *sql.Tx, eventName string,
 	); err != nil {
 		return "", fmt.Errorf("store: insert outbox row: %w", err)
 	}
+	s.mark(tx)
 	return id, nil
 }
 
