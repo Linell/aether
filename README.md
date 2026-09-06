@@ -13,6 +13,8 @@ MVP: Go control plane and CLI, one droplet host, one TypeScript daemon, and Tele
 
 Inngest Cloud offline delivery and reconnection have been verified by the operator.
 
+Layout: `contract/events.json` (source of truth), `cmd/aether` + `internal/` (Go), `packages/daemon` (TS). See `CLAUDE.md`.
+
 First build slice:
 
 1. Boot a minimal `aether` service with SQLite, connected to Inngest Cloud.

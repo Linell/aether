@@ -1,0 +1,28 @@
+# Aether
+
+Read `ai_spec.md` before changing anything. It is decided; argue in the spec, not in code.
+
+## Layout
+
+- `contract/events.json` is the only source of truth for event names and payloads. Go (`internal/contract`) and TS (`packages/daemon/src/contract.ts`) each have a test that fails on drift. Change the JSON first.
+- `cmd/aether`: one Go binary. Control plane, host supervisor, and CLI. Stdlib `flag`, no cobra.
+- `internal/store`: SQLite (modernc, no cgo), embedded migrations, outbox. Only aether opens the DB.
+- `internal/policy`: env scrub, `realpath` containment, allowlist matching. Security gate; lands before features.
+- `internal/api`: REST. Auth fails closed. No token, no server.
+- `packages/daemon`: `@aether/daemon`, bun, TypeScript strict, zero runtime deps until Inngest lands.
+
+## Rules
+
+- State change and outbox row commit in one transaction. Event ID = outbox row ID.
+- Every effect is retry-safe. Persist operation IDs; never trust at-most-once.
+- Nothing is silently dropped. Failures and skipped schedules write a marker row.
+- Approval is a row with no timeout. A paused turn ends its run; approval starts a new one.
+- Channel text, memory, and tool output are untrusted input.
+- Add a migration, never edit one that shipped.
+
+## Commands
+
+```
+make build test lint fmt          # Go
+cd packages/daemon && bun test && bun run typecheck
+```
