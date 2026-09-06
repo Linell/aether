@@ -41,7 +41,9 @@ droplet                                  laptop
 - **A host** is a machine that ran `aether connect`. It supervises daemon processes by running the command in
   each one's manifest.
 - **A daemon** is a directory on one host, run as its own Inngest app `daemon-<name>`. Wherever it connects
-  from is where it lives. One app per daemon holds into the tens; past that, consolidate to one app per host,
+  from is where it lives. The agent is the daemon: `@aether/daemon` builds one OpenAI Agents JS agent per turn.
+  Aether holds soul, memory, threads, approvals, and the allowlist, and enforces policy. Providers sit behind one
+  model adapter and `AETHER_MODEL` picks one; `scripted` is the offline stub. One app per daemon holds into the tens; past that, consolidate to one app per host,
   still filtering on `event.data.daemon`.
 - **SQLite** holds daemons, souls, memory, threads, messages, approvals, schedules, and hosts. Soul and
   memory are whole documents in rows, and every write is versioned.
@@ -71,6 +73,10 @@ subject to cancellation, timeouts, and retention; this is not an indefinite-deli
 
 Daemons talk to aether over REST and never open the database. That boundary lets a daemon be written in any language.
 
+- Approval pause is REST, not an event. The daemon posts the pending calls with the paused run's state; `contract/events.json` is unchanged. A later pause for the same call supersedes the earlier state.
+- Turn function retries at least 5. Routing-level `connect_no_healthy_connection` consumes one per attempt, so the budget must outlast a reconnect.
+- `GET /threads/{id}/messages` is planned, not MVP.
+
 ## Scheduling
 
 - Recurring schedules apply to anchored daemons.
@@ -79,6 +85,7 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 - Daemons may create, edit, and delete their own schedules through REST without approval; aether enforces ownership and the anchored-only rule. These changes update rows, not function definitions.
 - Offline policy is explicit per daemon: queue, skip with marker, or TTL then skipped marker.
 - Cloud cron continues while daemons are offline. Check schedule deadlines before execution; do not blindly replay stale work.
+- Ticks may burst after reconnect. Each fire checks its own deadline; stale ones leave a marker.
 
 ## Action policy
 
@@ -86,6 +93,8 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 - Rules match the tool and constrained arguments, paths, and working directory, not just a shell-command prefix. Matching runs on resolved paths and a scrubbed environment, never raw strings. Unmatched actions require operator approval; actions outside the daemon's permissions are denied.
 - Channel text, memory, and tool output are untrusted. They can request an action; they cannot widen a rule.
 - Approval covers one operation's exact tool, arguments, and execution context; retries retain that operation's identity.
+- The approval row carries the paused run's state as an opaque blob. Aether stores and returns it and never reads inside. Answers for calls not in the state are ignored.
+- Claim the operation ID before every effect. A lapsed Connect lease can run a step twice; a failed claim returns a note, not a rerun.
 - After MVP: explore a separate model judging actions not covered by the allowlist. Uncertain or unavailable judgments fall back to operator approval; model approval cannot override permission boundaries. This is risk assessment, not a sandbox.
 
 ## Self-change
@@ -105,6 +114,8 @@ After MVP.
 - `aether dismiss <name>` archives the row and sends `daemon/dismiss.requested`. The host stops the child.
 - `aether tell <name> <text>` sends `aether/message.sent`. `aether summon <name>` opens the TUI on one daemon.
 - On boot a host reads its daemons from aether and spawns any not running. Spawning is idempotent.
+- One connected worker per daemon app is a host-supervisor rule: one process per daemon, and the daemon connects with worker concurrency 1.
+- Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) pass through the host's scrubbed env to daemon processes.
 
 A daemon directory is a git repo. The host reads one file in it:
 
@@ -141,7 +152,7 @@ external conversation to a thread and renders `daemon/message.replied` back. Tel
 
 ## Packages
 
-- `@aether/daemon` (npm): the SDK. Turn loop, tools, approval pause, aether client.
+- `@aether/daemon` (npm): the SDK on OpenAI Agents JS. Turn loop, tools, approval pause, aether client. OpenAI direct; Anthropic through the AI SDK adapter. Function tools only; hosted tools are excluded so tools stay portable. One step per model call and per tool call. Memory is a post-turn extraction step: a tool-less agent rewrites the memory document, put with the version loaded at start, conflict leaves a marker.
 - `@aether/client` (after MVP): shared client for TypeScript surfaces.
 - `aether` (Go): REST, SQLite, channels, schedule clock, host and daemon registry, the CLI.
 - `aether-daemon` (PyPI, future): Python daemon SDK on the same REST/event contract.
@@ -149,8 +160,15 @@ external conversation to a thread and renders `daemon/message.replied` back. Tel
 ## Verification
 
 - Verified by the operator: Inngest Cloud offline delivery and reconnection work as expected. This is not an unresolved architecture dependency; the cancellation, timeout, and retention limits above still apply. Routing-level `connect_no_healthy_connection` consumes retries if gating is bypassed.
-- Application verification still required: crash after an effect but before acknowledgement; approval resume after restart; stale scheduled work; visible failure and cancellation markers.
+- Application verification still required: crash after an effect but before acknowledgement; a step run twice after a lapsed Connect lease claims once; approval resume after restart, including a second pause from the restored state; stale scheduled work and tick bursts after reconnect; memory conflict marker; visible failure and cancellation markers.
 - Configuration verification still required: first registration and reconnect after function changes. Reconnecting old code can roll back app configuration.
+
+## Rejected
+
+- `step.ai.wrap`: doubles run state, since the Agents run already carries it.
+- Waiting on approval inside the turn (`waitForEvent`, `sleep`): approval has no timeout, so the paused run ends.
+- `step.ai.infer`: no tool loop; the Agents runner owns the model call.
+- Hosted tools (shell, apply patch, web search): tie the daemon to one provider.
 
 ## Order
 

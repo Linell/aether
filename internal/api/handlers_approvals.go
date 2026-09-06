@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
@@ -15,6 +16,7 @@ type approvalDoc struct {
 	Thread string        `json:"thread"`
 	Status string        `json:"status"`
 	Call   contract.Call `json:"call"`
+	State  string        `json:"state,omitempty"`
 }
 
 func (s *server) handleGetApproval(w http.ResponseWriter, r *http.Request) {
@@ -25,12 +27,13 @@ func (s *server) handleGetApproval(w http.ResponseWriter, r *http.Request) {
 func approvalByID(ctx context.Context, q store.DBTX, id string) (approvalDoc, error) {
 	doc := approvalDoc{ID: id}
 	var args, callCtx string
+	var state sql.NullString
 	err := lookup(ctx, q,
-		`SELECT d.name, a.thread_id, a.status, a.call_id, a.tool, a.args, a.context
+		`SELECT d.name, a.thread_id, a.status, a.call_id, a.tool, a.args, a.context, a.state
 		 FROM approvals a JOIN threads t ON t.id = a.thread_id JOIN daemons d ON d.id = t.daemon_id
 		 WHERE a.id = ?`,
-		id, &doc.Daemon, &doc.Thread, &doc.Status, &doc.Call.ID, &doc.Call.Tool, &args, &callCtx)
-	doc.Call.Args, doc.Call.Context = json.RawMessage(args), json.RawMessage(callCtx)
+		id, &doc.Daemon, &doc.Thread, &doc.Status, &doc.Call.ID, &doc.Call.Tool, &args, &callCtx, &state)
+	doc.Call.Args, doc.Call.Context, doc.State = json.RawMessage(args), json.RawMessage(callCtx), state.String
 	return doc, err
 }
 

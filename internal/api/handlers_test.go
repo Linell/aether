@@ -243,10 +243,19 @@ func TestClaimOperationOnce(t *testing.T) {
 func TestApprovalsRequestDedupesEvent(t *testing.T) {
 	s, st := newTestServer(t)
 	seedThread(t, st, "anchored")
-	body := `{"calls":[{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}]}`
-	call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"})
-	call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"})
+	body := `{"calls":[{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}],"state":"s1"}`
+	var first, second struct{ Approval string }
+	decode(t, call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"}), &first)
+	decode(t, call(s.handleThreadApprovals, http.MethodPost, strings.Replace(body, "s1", "s2", 1), map[string]string{"id": "t1"}), &second)
+	if first.Approval != second.Approval {
+		t.Errorf("approval ids = %q, %q; want equal", first.Approval, second.Approval)
+	}
 	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'daemon/approval.requested'`); n != 1 {
 		t.Errorf("outbox count = %d, want 1", n)
+	}
+	var doc approvalDoc
+	decode(t, call(s.handleGetApproval, http.MethodGet, "", map[string]string{"id": first.Approval}), &doc)
+	if doc.State != "s2" {
+		t.Errorf("state = %q, want s2", doc.State)
 	}
 }

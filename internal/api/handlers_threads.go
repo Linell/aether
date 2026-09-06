@@ -41,6 +41,7 @@ func (s *server) insertReply(ctx context.Context, threadID string, body messageB
 func (s *server) handleThreadApprovals(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Calls []contract.Call `json:"calls"`
+		State string          `json:"state"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -49,7 +50,7 @@ func (s *server) handleThreadApprovals(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "calls must not be empty")
 		return
 	}
-	ids, err := s.createApprovals(r.Context(), r.PathValue("id"), body.Calls)
+	ids, err := s.createApprovals(r.Context(), r.PathValue("id"), body.Calls, body.State)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -57,7 +58,7 @@ func (s *server) handleThreadApprovals(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"approval": ids[0], "approvals": ids})
 }
 
-func (s *server) createApprovals(ctx context.Context, threadID string, calls []contract.Call) ([]string, error) {
+func (s *server) createApprovals(ctx context.Context, threadID string, calls []contract.Call, state string) ([]string, error) {
 	var ids []string
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemon, err := threadDaemonName(ctx, tx, threadID)
@@ -65,7 +66,7 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 			return err
 		}
 		var created bool
-		if ids, created, err = insertApprovals(ctx, tx, threadID, calls); err != nil || !created {
+		if ids, created, err = insertApprovals(ctx, tx, threadID, calls, state); err != nil || !created {
 			return err
 		}
 		_, err = tx.EnqueueOutbox(ctx, contract.EventApprovalRequested, contract.ApprovalRequestedPayload{
@@ -78,24 +79,33 @@ func (s *server) createApprovals(ctx context.Context, threadID string, calls []c
 	return ids, err
 }
 
-func insertApprovals(ctx context.Context, tx store.DBTX, threadID string, calls []contract.Call) ([]string, bool, error) {
+func insertApprovals(ctx context.Context, tx store.DBTX, threadID string, calls []contract.Call, state string) ([]string, bool, error) {
 	ids := make([]string, len(calls))
 	created := false
 	for i, call := range calls {
-		out, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO approvals (id, thread_id, call_id, tool, args, context) VALUES (?, ?, ?, ?, ?, ?)`,
-			store.NewID(), threadID, call.ID, call.Tool, string(call.Args), string(call.Context))
+		n, err := insertApproval(ctx, tx, threadID, call, state)
 		if err != nil {
 			return nil, false, err
 		}
-		if n, err := inserted(out); err != nil {
-			return nil, false, err
-		} else if n {
-			created = true
-		}
+		created = created || n
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM approvals WHERE call_id = ?`, call.ID).Scan(&ids[i]); err != nil {
 			return nil, false, err
 		}
 	}
 	return ids, created, nil
+}
+
+func insertApproval(ctx context.Context, tx store.DBTX, threadID string, call contract.Call, state string) (bool, error) {
+	out, err := tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO approvals (id, thread_id, call_id, tool, args, context, state) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		store.NewID(), threadID, call.ID, call.Tool, string(call.Args), string(call.Context), state)
+	if err != nil {
+		return false, err
+	}
+	n, err := inserted(out)
+	if err != nil || n {
+		return n, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE approvals SET state = ? WHERE call_id = ? AND status = 'pending'`, state, call.ID)
+	return false, err
 }

@@ -2,7 +2,7 @@
 
 Landing page for [aether](https://github.com/linell/aether): personal daemons with memory, schedules, and one thread you can reach from anywhere.
 
-Static [Astro](https://astro.build) site, managed with pnpm. Pushes to `main` that touch `web/` deploy it to [linell.github.io/aether](https://linell.github.io/aether/) through `.github/workflows/pages.yml`.
+Static [Astro](https://astro.build) site, managed with pnpm. Pushes to `main` that touch `web/` deploy it to [thelinell.com/aether](https://thelinell.com/aether/) through `.github/workflows/pages.yml`.
 
 ```
 pnpm install

@@ -6,7 +6,10 @@ import (
 	"github.com/linell/aether/internal/policy"
 )
 
-var passthrough = []string{"INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY", "INNGEST_ENV", "INNGEST_DEV"}
+var passthrough = []string{
+	"INNGEST_EVENT_KEY", "INNGEST_SIGNING_KEY", "INNGEST_ENV", "INNGEST_DEV",
+	"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AETHER_MODEL", "AETHER_MAX_TURNS",
+}
 
 func BaseEnv() []string {
 	return scrubbed(policy.DefaultEnvAllow)
