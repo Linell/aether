@@ -25,7 +25,18 @@ func New(st *store.Store, token string) (http.Handler, error) {
 }
 
 func (s *server) v1() http.Handler {
-	return http.NewServeMux()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
+	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
+	mux.HandleFunc("GET /daemons/{name}/soul", s.handleGetSoul)
+	mux.HandleFunc("GET /daemons/{name}/memory", s.handleGetMemory)
+	mux.HandleFunc("PUT /daemons/{name}/memory", s.handlePutMemory)
+	mux.HandleFunc("GET /daemons/{name}/schedules", s.handleListSchedules)
+	mux.HandleFunc("PUT /daemons/{name}/schedules/{id}", s.handlePutSchedule)
+	mux.HandleFunc("DELETE /daemons/{name}/schedules/{id}", s.handleDeleteSchedule)
+	mux.HandleFunc("POST /hosts", s.handleCreateHost)
+	mux.HandleFunc("GET /hosts/{name}/daemons", s.handleHostDaemons)
+	return mux
 }
 
 func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {

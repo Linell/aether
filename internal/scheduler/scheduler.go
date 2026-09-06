@@ -97,13 +97,21 @@ func handle(ctx context.Context, st *store.Store, tx *sql.Tx, r row, now time.Ti
 }
 
 func parse(r row) (cron.Schedule, error) {
-	loc, err := time.LoadLocation(r.tz)
+	sched, err := Parse(r.cron, r.tz)
 	if err != nil {
-		return nil, fmt.Errorf("scheduler: %s tz %q: %w", r.id, r.tz, err)
+		return nil, fmt.Errorf("scheduler: %s: %w", r.id, err)
 	}
-	sched, err := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow).Parse(r.cron)
+	return sched, nil
+}
+
+func Parse(expr, tz string) (cron.Schedule, error) {
+	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return nil, fmt.Errorf("scheduler: %s cron %q: %w", r.id, r.cron, err)
+		return nil, fmt.Errorf("invalid tz %q: %w", tz, err)
+	}
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cron %q: %w", expr, err)
 	}
 	return inLocation{sched, loc}, nil
 }
