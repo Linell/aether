@@ -1,0 +1,46 @@
+---
+/**
+ * Full-bleed smoke backdrop. The canvas is absolutely positioned inside
+ * whatever relative container wraps it. Falls back to a static gradient
+ * when WebGL2 is unavailable.
+ */
+interface Props {
+  /** Multiplies smoke density and brightness; 0.5 reads as a quieter backdrop. */
+  dim?: number;
+}
+
+const { dim = 1 } = Astro.props;
+---
+
+<div class="smoke" aria-hidden="true">
+  <canvas class="smoke-canvas" data-smoke data-dim={dim}></canvas>
+</div>
+
+<style>
+  .smoke {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 100%, rgba(138, 148, 166, 0.14), transparent 70%),
+      var(--ink);
+  }
+
+  .smoke-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+
+<script>
+  import { mountSmoke } from '../lib/smoke';
+
+  for (const canvas of document.querySelectorAll<HTMLCanvasElement>('[data-smoke]')) {
+    const dim = Number(canvas.dataset.dim);
+    const dispose = mountSmoke(canvas, {
+      dim: Number.isFinite(dim) ? dim : 1,
+    });
+    if (dispose === null) canvas.remove();
+  }
+</script>

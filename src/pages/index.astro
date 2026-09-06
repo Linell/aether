@@ -1,17 +1,438 @@
 ---
+import Base from '../layouts/Base.astro';
+import Smoke from '../components/Smoke.astro';
 
+const rites = [
+  { verb: 'connect', cmd: 'aether connect', text: 'bind this machine as a host' },
+  { verb: 'conjure', cmd: 'aether conjure <name>', text: 'bring a daemon into being' },
+  { verb: 'tell', cmd: 'aether tell <name> <text>', text: 'speak to it from the shell' },
+  { verb: 'summon', cmd: 'aether summon <name>', text: 'sit with one daemon in the terminal' },
+  { verb: 'deploy', cmd: 'aether daemon <name> deploy', text: 'give it new code and wake it again' },
+  { verb: 'dismiss', cmd: 'aether dismiss <name>', text: 'release it, nothing is destroyed' },
+];
+
+const source = 'https://github.com/linell/aether';
+const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<Base
+  title="aether"
+  description="Personal daemons with memory, schedules, and one thread you can reach from anywhere."
+>
+  <header class="hero">
+    <Smoke />
+
+    <nav class="nav wrap">
+      <a class="nav-mark" href="/">aether</a>
+      <div class="nav-links">
+        <a href="#rites">rites</a>
+        <a href={source} rel="noopener">source</a>
+      </div>
+    </nav>
+
+    <div class="hero-body wrap">
+      <h1 class="wordmark">aether</h1>
+      <p class="tagline">Personal daemons with memory, schedules, and one thread you can reach from anywhere.</p>
+
+      {/* SSR renders the finished terminal; the script rewinds and replays it. */}
+      <div class="incant" data-term>
+        <p class="term-line">
+          <span class="prompt" aria-hidden="true">$</span><span class="term-cmd" data-cmd>aether conjure familiar</span><span class="caret" data-caret aria-hidden="true" hidden></span>
+        </p>
+        <p class="term-line term-out" data-out>familiar is awake.</p>
+        <p class="term-line" data-next>
+          <span class="prompt" aria-hidden="true">$</span><span class="caret" aria-hidden="true"></span>
+        </p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section no-line" id="what">
+      <div class="wrap lines">
+        <p class="reveal">A daemon is a directory on a machine, given a soul.</p>
+        <p class="reveal">It keeps its own memory and runs on its own schedule.</p>
+        <p class="reveal">You reach it from a phone or a shell, on one thread.</p>
+        <p class="reveal">It works while your laptop is closed.</p>
+      </div>
+    </section>
+
+    <section class="section" id="rites">
+      <div class="wrap">
+        <span class="label reveal">rites</span>
+        <ol class="rites">
+          {rites.map(({ verb, cmd, text }) => (
+            <li class="rite reveal">
+              <h2 class="rite-verb">{verb}</h2>
+              <code class="rite-cmd">{cmd}</code>
+              <p class="rite-text">{text}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+
+    <section class="section section-law" id="law">
+      <Smoke dim={0.5} />
+      <div class="wrap law-body">
+        <p class="law reveal">Nothing summoned is lost.<br />Nothing missed goes unmarked.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-row">
+      <span class="muted">aether</span>
+      <div class="nav-links">
+        <a href={source} rel="noopener">source</a>
+        <a href={spec} rel="noopener">spec</a>
+      </div>
+    </div>
+  </footer>
+</Base>
+
+<script>
+  const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  async function replay(term: HTMLElement) {
+    const cmd = term.querySelector<HTMLElement>('[data-cmd]');
+    const caret = term.querySelector<HTMLElement>('[data-caret]');
+    const out = term.querySelector<HTMLElement>('[data-out]');
+    const next = term.querySelector<HTMLElement>('[data-next]');
+    if (!cmd || !caret || !out || !next) return;
+
+    const text = cmd.textContent ?? '';
+
+    // Rewind to the empty prompt. The block is invisible for the first second
+    // of the condense animation, so this never flashes.
+    cmd.textContent = '';
+    caret.hidden = false;
+    out.classList.add('is-hidden');
+    next.classList.add('is-hidden');
+
+    // Let the wordmark and tagline settle first.
+    await wait(2600);
+
+    for (const ch of text) {
+      cmd.textContent += ch;
+      const jitter = (Math.random() - 0.5) * 40;
+      await wait(45 + jitter + (ch === ' ' ? 70 : 0));
+    }
+
+    await wait(650);
+    caret.hidden = true;
+    out.classList.remove('is-hidden');
+
+    await wait(400);
+    next.classList.remove('is-hidden');
+  }
+
+  const term = document.querySelector<HTMLElement>('[data-term]');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (term && !reduce) replay(term);
+</script>
+
+<style>
+  /* Hero ----------------------------------------------------------------- */
+
+  .hero {
+    position: relative;
+    min-height: 100svh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    isolation: isolate;
+  }
+
+  .hero > :not(:first-child) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-block: 1.75rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+  }
+
+  .nav-mark {
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+
+  .nav-mark:hover {
+    color: var(--ember);
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 1.75rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .nav-links a {
+    transition: color 0.3s;
+  }
+
+  .nav-links a:hover {
+    color: var(--ember);
+  }
+
+  .hero-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    justify-items: center;
+    text-align: center;
+    gap: 2rem;
+    padding-block: 4rem;
+  }
+
+  .wordmark {
+    font-size: clamp(3.5rem, 13vw, 11rem);
+    font-weight: 200;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    margin-right: -0.08em; /* balance the trailing tracking */
+    color: var(--text);
+    animation: condense 2.4s cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  }
+
+  .tagline {
+    max-width: min(var(--measure), 100%);
+    font-size: clamp(0.85rem, 1.3vw, 1rem);
+    font-weight: 300;
+    color: var(--muted);
+    animation: condense 2.4s 0.5s cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  }
+
+  /* Terminal: fixed width in ch so the prompt never drifts while typing. */
+  .incant {
+    width: 28ch;
+    max-width: 100%;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    text-align: left;
+    animation: condense 2.4s 1s cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  }
+
+  .term-line {
+    min-height: 1.7em;
+    white-space: nowrap;
+  }
+
+  .term-cmd {
+    color: var(--text);
+    font-weight: 300;
+  }
+
+  .term-out {
+    color: var(--muted);
+  }
+
+  .term-out,
+  [data-next] {
+    transition: opacity 0.5s;
+  }
+
+  .is-hidden {
+    opacity: 0;
+  }
+
+  .prompt {
+    color: var(--ember);
+    margin-right: 1ch;
+  }
+
+  .caret {
+    display: inline-block;
+    width: 0.6ch;
+    height: 1em;
+    margin-left: 0.15ch;
+    vertical-align: -0.15em;
+    background: var(--ember);
+    animation: blink 1.4s steps(1) infinite;
+  }
+
+  @keyframes condense {
+    from {
+      opacity: 0;
+      filter: blur(14px);
+      transform: translateY(0.5rem);
+    }
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  /* What ----------------------------------------------------------------- */
+
+  .lines {
+    display: grid;
+    gap: 2.25rem;
+    max-width: 42rem;
+    font-size: clamp(1rem, 1.6vw, 1.2rem);
+    font-weight: 300;
+    line-height: 1.8;
+  }
+
+  .lines .reveal:nth-child(2) { transition-delay: 0.15s; }
+  .lines .reveal:nth-child(3) { transition-delay: 0.3s; }
+  .lines .reveal:nth-child(4) { transition-delay: 0.45s; }
+
+  /* Rites ---------------------------------------------------------------- */
+
+  #rites {
+    scroll-margin-top: 2rem;
+  }
+
+  .rites {
+    list-style: none;
+    margin: 2rem 0 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .rite {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    grid-template-areas:
+      'verb cmd'
+      'verb text';
+    column-gap: 2rem;
+    row-gap: 0.25rem;
+    padding-block: 1.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rite:nth-child(2) { transition-delay: 0.08s; }
+  .rite:nth-child(3) { transition-delay: 0.16s; }
+  .rite:nth-child(4) { transition-delay: 0.24s; }
+  .rite:nth-child(5) { transition-delay: 0.32s; }
+  .rite:nth-child(6) { transition-delay: 0.4s; }
+
+  @media (min-width: 48rem) {
+    .rite {
+      grid-template-columns: 8rem 1fr 1fr;
+      grid-template-areas: 'verb cmd text';
+      align-items: baseline;
+    }
+  }
+
+  .rite-verb {
+    grid-area: verb;
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+
+  .rite-cmd {
+    grid-area: cmd;
+    position: relative;
+    font-size: 0.85rem;
+    color: var(--dim);
+    transition: color 0.3s;
+  }
+
+  .rite-cmd::before {
+    content: '$';
+    position: absolute;
+    right: 100%;
+    margin-right: 1ch;
+    color: var(--ember);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .rite-text {
+    grid-area: text;
+    font-size: 0.9rem;
+    font-weight: 300;
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+
+  .rite:hover .rite-verb,
+  .rite:focus-within .rite-verb,
+  .rite:hover .rite-text,
+  .rite:focus-within .rite-text {
+    color: var(--text);
+  }
+
+  .rite:hover .rite-cmd,
+  .rite:focus-within .rite-cmd {
+    color: var(--muted);
+  }
+
+  .rite:hover .rite-cmd::before,
+  .rite:focus-within .rite-cmd::before {
+    opacity: 1;
+  }
+
+  /* Law ------------------------------------------------------------------ */
+
+  .section-law {
+    position: relative;
+    isolation: isolate;
+    min-height: 60svh;
+    display: grid;
+    align-content: center;
+  }
+
+  .law-body {
+    position: relative;
+    z-index: 1;
+  }
+
+  .law {
+    max-width: 40rem;
+    font-size: clamp(1.4rem, 3vw, 2.25rem);
+    font-weight: 300;
+    font-style: italic;
+    line-height: 1.4;
+    color: var(--text);
+  }
+
+  /* Footer --------------------------------------------------------------- */
+
+  .footer {
+    border-top: 1px solid var(--line);
+    padding-block: 3rem;
+  }
+
+  .footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.8rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark,
+    .tagline,
+    .incant,
+    .caret {
+      animation: none;
+    }
+
+    .term-out,
+    [data-next],
+    .rite-verb,
+    .rite-cmd,
+    .rite-cmd::before,
+    .rite-text,
+    .nav-mark,
+    .nav-links a {
+      transition: none;
+    }
+  }
+</style>
