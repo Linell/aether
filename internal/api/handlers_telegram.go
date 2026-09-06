@@ -13,7 +13,10 @@ import (
 	"github.com/linell/aether/internal/telegram"
 )
 
-var errIgnored = errors.New("ignored")
+var (
+	errIgnored   = errors.New("ignored")
+	errDuplicate = errors.Join(errIgnored, errors.New("duplicate update"))
+)
 
 type Telegram struct {
 	Client        *telegram.Client
@@ -57,7 +60,7 @@ func (s *server) telegramText(ctx context.Context, u telegram.Update) (map[strin
 	body := messageBody{ID: store.NewID(), Text: msg.Text}
 	var threadID string
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
-		if fresh, err := claimUpdate(ctx, tx, u.ID); err != nil || !fresh {
+		if err := claimUpdate(ctx, tx, u.ID); err != nil {
 			return err
 		}
 		daemon, thread, err := s.bindChat(ctx, tx, msg.Chat.ID, msg.Text)
@@ -73,14 +76,17 @@ func (s *server) telegramText(ctx context.Context, u telegram.Update) (map[strin
 	return map[string]string{"thread": threadID, "message": body.ID}, err
 }
 
-func claimUpdate(ctx context.Context, tx store.DBTX, id int64) (bool, error) {
+func claimUpdate(ctx context.Context, tx store.DBTX, id int64) error {
 	out, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO operations (id, kind) VALUES (?, 'telegram.update')`,
 		"telegram:update:"+strconv.FormatInt(id, 10))
 	if err != nil {
-		return false, err
+		return err
 	}
-	return inserted(out)
+	if fresh, err := inserted(out); err != nil || fresh {
+		return err
+	}
+	return errDuplicate
 }
 
 func (s *server) bindChat(ctx context.Context, tx store.DBTX, chat int64, text string) (string, string, error) {
@@ -137,14 +143,14 @@ func (s *server) telegramCallback(ctx context.Context, u telegram.Update) (appro
 	}
 	var doc approvalDoc
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
-		fresh, err := claimUpdate(ctx, tx, u.ID)
-		if err != nil || !fresh {
+		if err := claimUpdate(ctx, tx, u.ID); err != nil {
 			return err
 		}
+		var err error
 		doc, err = answerApproval(ctx, tx, decision.Approval, decision.Decision)
 		return err
 	})
-	if err == nil && doc.ID != "" {
+	if err == nil {
 		s.acknowledgeCallback(u.Callback, doc)
 	}
 	return doc, err

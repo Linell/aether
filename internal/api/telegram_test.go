@@ -50,7 +50,9 @@ func TestWebhookTextBindsChatAndDedupes(t *testing.T) {
 	if rec := post(text); rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	post(text)
+	if rec := post(text); !strings.Contains(rec.Body.String(), "duplicate") {
+		t.Errorf("duplicate body = %s, want ignored", rec.Body.String())
+	}
 	post(`{"update_id":11,"message":{"message_id":2,"chat":{"id":42},"text":"again"}}`)
 	st := s.store
 	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM channels WHERE kind = 'telegram' AND external_id = '42' AND thread_id = 't1'`); n != 1 {
