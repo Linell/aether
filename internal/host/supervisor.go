@@ -102,6 +102,7 @@ func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 		return
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", m.Run)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = dir
 	cmd.Env = s.Env
 	cmd.Stdout = os.Stdout
@@ -127,7 +128,7 @@ func (s *Supervisor) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for name, cmd := range s.running {
-		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM); err != nil {
 			log.Printf("host: %s: signal: %v", name, err)
 		}
 	}
