@@ -15,12 +15,33 @@ import (
 type Supervisor struct {
 	root    string
 	reg     Registry
+	SDK     string
+	Env     []string
 	mu      sync.Mutex
 	running map[string]*exec.Cmd
 }
 
 func New(root string, reg Registry) *Supervisor {
-	return &Supervisor{root: root, reg: reg, running: make(map[string]*exec.Cmd)}
+	return &Supervisor{
+		root:    root,
+		reg:     reg,
+		Env:     policy.ScrubEnv(os.Environ(), policy.DefaultEnvAllow),
+		running: make(map[string]*exec.Cmd),
+	}
+}
+
+func (s *Supervisor) Root() string { return s.root }
+
+func (s *Supervisor) Conjure(ctx context.Context, name string) error {
+	dir, err := policy.ResolveWithin(s.root, name)
+	if err != nil {
+		return err
+	}
+	if err := Scaffold(ctx, dir, name, s.SDK, Exec); err != nil {
+		return err
+	}
+	s.reconcileOne(ctx, name)
+	return nil
 }
 
 func (s *Supervisor) Run(ctx context.Context, interval time.Duration) error {
@@ -82,7 +103,7 @@ func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", m.Run)
 	cmd.Dir = dir
-	cmd.Env = policy.ScrubEnv(os.Environ(), policy.DefaultEnvAllow)
+	cmd.Env = s.Env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

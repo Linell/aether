@@ -134,6 +134,7 @@ func connect(args []string) error {
 	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
 	root := fs.String("root", ".", "directory holding daemon checkouts")
 	name := fs.String("name", instanceID(), "host name")
+	sdk := fs.String("sdk", "file:../../packages/daemon", "@aether/daemon dependency spec for scaffolds")
 	every := fs.Duration("every", 30*time.Second, "reconcile interval")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -149,18 +150,36 @@ func connect(args []string) error {
 	ctx, stop := signalContext()
 	defer stop()
 	client := &host.Client{Client: rest.Client{BaseURL: *aether, Token: token}, Host: *name, Root: absRoot}
-	return runHost(ctx, client, absRoot, *every)
+	sup := host.New(absRoot, client)
+	sup.SDK = *sdk
+	sup.Env = host.DaemonEnv(*aether, token)
+	return runHost(ctx, client, sup, *every)
 }
 
-func runHost(ctx context.Context, client *host.Client, root string, every time.Duration) error {
+func runHost(ctx context.Context, client *host.Client, sup *host.Supervisor, every time.Duration) error {
 	if err := client.Register(ctx); err != nil {
 		return err
 	}
-	log.Printf("host %s registered, supervising %s", client.Host, root)
-	err := host.New(root, client).Run(ctx, every)
+	if err := connectHost(ctx, client.Host, sup); err != nil {
+		return err
+	}
+	log.Printf("host %s registered, supervising %s", client.Host, sup.Root())
+	err := sup.Run(ctx, every)
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
+	return err
+}
+
+func connectHost(ctx context.Context, name string, sup *host.Supervisor) error {
+	pub, err := inngest.New(inngest.OptionsFromEnv(inngest.HostAppID(name)))
+	if err != nil {
+		return err
+	}
+	if err := inngest.RegisterConjure(pub, name, sup.Conjure); err != nil {
+		return err
+	}
+	_, err = inngest.Connect(ctx, pub, name)
 	return err
 }
 
