@@ -1,0 +1,21 @@
+{
+  "$comment": "Single source of truth for the Inngest event contract. Go and TS each embed this file and test their constants against it. Names use scope/name.action; commands end in .requested, outcomes are past tense. Every payload carries `daemon`.",
+  "version": 1,
+  "events": {
+    "aether/message.sent":        { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "message", "text"] },
+    "aether/schedule.fired":      { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "schedule", "due_at", "deadline_at"] },
+    "aether/approval.answered":   { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "call", "approval", "decision"] },
+    "daemon/message.replied":     { "from": "daemon", "to": "aether", "fields": ["daemon", "thread", "reply", "text"] },
+    "daemon/approval.requested":  { "from": "daemon", "to": "aether", "fields": ["daemon", "thread", "calls"] },
+    "daemon/conjure.requested":   { "from": "aether", "to": "host",   "fields": ["daemon", "host", "language"] },
+    "daemon/deploy.requested":    { "from": "aether", "to": "host",   "fields": ["daemon", "host"] },
+    "daemon/dismiss.requested":   { "from": "aether", "to": "host",   "fields": ["daemon", "host"] },
+    "daemon/change.requested":    { "from": "daemon", "to": "aether", "fields": ["daemon", "patch", "tests"] }
+  },
+  "rules": {
+    "event_id": "Outbox row id. Stable across publish retries so Inngest deduplicates.",
+    "daemon_filter": "Daemon functions filter on event.data.daemon.",
+    "turn_concurrency": { "key": "event.data.thread", "limit": 1 },
+    "offline": "Connect queues pending runs while a worker is offline; check deadline_at before executing scheduled work."
+  }
+}
