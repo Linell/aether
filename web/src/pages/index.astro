@@ -4,26 +4,27 @@ import Smoke from '../components/Smoke.astro';
 
 const rites = [
   { verb: 'connect', cmd: 'aether connect', text: 'bind this machine as a host' },
-  { verb: 'conjure', cmd: 'aether conjure <name>', text: 'bring a daemon into being' },
+  { verb: 'conjure', cmd: 'aether conjure <name>', text: 'will a daemon into being' },
   { verb: 'tell', cmd: 'aether tell <name> <text>', text: 'speak to it from the shell' },
   { verb: 'summon', cmd: 'aether summon <name>', text: 'sit with one daemon in the terminal' },
   { verb: 'deploy', cmd: 'aether daemon <name> deploy', text: 'give it new code and wake it again' },
   { verb: 'dismiss', cmd: 'aether dismiss <name>', text: 'release it, nothing is destroyed' },
 ];
 
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const source = 'https://github.com/linell/aether';
-const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
+const spec = 'https://github.com/linell/aether/blob/main/ai_spec.md';
 ---
 
 <Base
   title="aether"
-  description="Personal daemons with memory, schedules, and one thread you can reach from anywhere."
+  description="Personal daemons from the aether."
 >
   <header class="hero">
     <Smoke />
 
     <nav class="nav wrap">
-      <a class="nav-mark" href="/">aether</a>
+      <a class="nav-mark" href={`${base}/`}>aether</a>
       <div class="nav-links">
         <a href="#rites">rites</a>
         <a href={source} rel="noopener">source</a>
@@ -32,7 +33,7 @@ const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
 
     <div class="hero-body wrap">
       <h1 class="wordmark">aether</h1>
-      <p class="tagline">Personal daemons with memory, schedules, and one thread you can reach from anywhere.</p>
+      <p class="tagline">Personal daemons with memory, schedules, and a thread you can reach from anywhere.</p>
 
       {/* SSR renders the finished terminal; the script rewinds and replays it. */}
       <div class="incant" data-term>
@@ -50,10 +51,7 @@ const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
   <main>
     <section class="section no-line" id="what">
       <div class="wrap lines">
-        <p class="reveal">A daemon is a directory on a machine, given a soul.</p>
-        <p class="reveal">It keeps its own memory and runs on its own schedule.</p>
-        <p class="reveal">You reach it from a phone or a shell, on one thread.</p>
-        <p class="reveal">It works while your laptop is closed.</p>
+        <p class="reveal">A daemon is a machine given a soul.</p>
       </div>
     </section>
 
@@ -69,13 +67,6 @@ const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
             </li>
           ))}
         </ol>
-      </div>
-    </section>
-
-    <section class="section section-law" id="law">
-      <Smoke dim={0.5} />
-      <div class="wrap law-body">
-        <p class="law reveal">Nothing summoned is lost.<br />Nothing missed goes unmarked.</p>
       </div>
     </section>
   </main>
@@ -374,30 +365,6 @@ const spec = 'https://github.com/linell/aether/blob/main/SPEC.md';
   .rite:hover .rite-cmd::before,
   .rite:focus-within .rite-cmd::before {
     opacity: 1;
-  }
-
-  /* Law ------------------------------------------------------------------ */
-
-  .section-law {
-    position: relative;
-    isolation: isolate;
-    min-height: 60svh;
-    display: grid;
-    align-content: center;
-  }
-
-  .law-body {
-    position: relative;
-    z-index: 1;
-  }
-
-  .law {
-    max-width: 40rem;
-    font-size: clamp(1.4rem, 3vw, 2.25rem);
-    font-weight: 300;
-    font-style: italic;
-    line-height: 1.4;
-    color: var(--text);
   }
 
   /* Footer --------------------------------------------------------------- */

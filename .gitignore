@@ -62,3 +62,6 @@ tmp/
 
 # Local daemon checkouts
 daemons/
+
+# Astro
+.astro/

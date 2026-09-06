@@ -9,7 +9,9 @@ Status: spec decided. Control plane, host, one conjured daemon, and Telegram app
 - daemons: per-directory workers that execute turns and report outcomes.
 - state: SQLite owns application state; Inngest Cloud owns durable execution.
 
-MVP: Go control plane and CLI, one droplet host, one TypeScript daemon, and Telegram. Messages, memory, schedules, and durable tool approvals are in scope. Additional hosts, deploy automation, self-change, TUI/web/Slack, and other daemon languages follow after MVP. Design is in [the spec](ai_spec.md); layout and rules are in `CLAUDE.md`.
+MVP: Go control plane and CLI, one droplet host, one TypeScript daemon, and Telegram. Messages, memory, schedules, and durable tool approvals are in scope. Additional hosts, deploy automation, self-change, TUI/web/Slack, and other daemon languages follow after MVP. Design is in [the spec](ai_spec.md); layout and rules are in `CLAUDE.md`. The landing page at [linell.github.io/aether](https://linell.github.io/aether/) lives in `web/`.
+
+MIT licensed.
 
 ## Run
 
