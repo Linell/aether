@@ -1,0 +1,18 @@
+{
+  "name": "@aether/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "_note": "Source exports for MVP; build output (dist/) lands once this ships to consumers outside the monorepo.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/bun": "^1.1.0"
+  }
+}
