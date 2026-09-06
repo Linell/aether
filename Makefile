@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt
+.PHONY: build test lint fmt up
 
 build:
 	go build -o bin/aether ./cmd/aether
@@ -11,3 +11,6 @@ lint:
 
 fmt:
 	gofmt -l -w .
+
+up: build
+	scripts/up.sh

@@ -13,10 +13,21 @@ MVP: Go control plane and CLI, one droplet host, one TypeScript daemon, and Tele
 
 ## Run
 
-Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refuses to start without them. The Inngest keys come from the Cloud dashboard; the token is any secret you pick, shared by `serve`, the CLI, hosts, and daemons.
+Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refuses to start without them. The Inngest keys come from the Cloud dashboard; the token is any secret you pick, shared by `serve`, the CLI, hosts, and daemons. Set `INNGEST_DEV=http://127.0.0.1:8288` on every process to use a local dev server instead of Cloud.
+
+You need Go, bun, Node (for `npx`), and curl. `serve` listens on 8080 and the dev server on 8288 by default.
+
+The quick way is `make up`. Copy `.env.example` to `.env` (git ignores it), fill in the keys, and run it. It builds, starts a local Inngest dev server when `INNGEST_DEV` is set and nothing answers there, then starts `serve` and `connect` on this machine. All three log to the terminal. Ctrl-C stops all of them, and if one exits the rest stop too. `ALLOWLIST`, `DB`, `LISTEN`, and `ROOT` in `.env` pass through to the flags below.
 
 ```
-export AETHER_TOKEN=$(openssl rand -hex 32)
+cp .env.example .env    # then fill in the keys
+make up
+```
+
+Or by hand:
+
+```
+export AETHER_TOKEN=$(openssl rand -hex 32) INNGEST_EVENT_KEY=... INNGEST_SIGNING_KEY=...
 make build
 bin/aether serve   --db aether.db --listen :8080
 bin/aether connect --aether http://127.0.0.1:8080 --root ./daemons
@@ -29,7 +40,29 @@ curl -X PUT localhost:8080/v1/daemons/foo/schedules/morning-review \
   -d '{"cron":"0 7 * * *","tz":"America/New_York","policy":"queue"}'
 ```
 
-`serve` opens the store, serves REST under `/v1`, connects to Inngest Cloud as app `aether`, registers `scheduler.tick` plus the Telegram delivery functions, and drains the outbox. `--allowlist file.json` lists tool calls that run without approval, e.g. `{"rules":[{"tool":"shell","argv":["ls","..."]}]}` (`*` matches one argument, `...` the rest; path-like arguments must resolve inside the thread directory). Anything unmatched becomes an approval row. Telegram is on when `TELEGRAM_BOT_TOKEN` is set: approvals and replies for a bound chat are sent through the Bot API, and `POST /v1/channels/telegram/webhook`, authenticated only by `TELEGRAM_WEBHOOK_SECRET`, takes text (bound to the daemon's default thread on first contact, or `/start <daemon>` when several exist) and approve/deny buttons. `TELEGRAM_API_URL` points the client at a fake for local runs. `connect` registers this machine as a host, connects as `host-<name>`, scaffolds daemons on `daemon/conjure.requested`, and spawns the `run` command from each daemon's `aether.json` under `--root` with a scrubbed env plus `AETHER_URL`, `AETHER_TOKEN`, and the Inngest keys. `--sdk` is the `@aether/daemon` dependency written into scaffolds; the default `file:../../packages/daemon` fits `--root ./daemons` in this repo. A schedule PUT with no `thread` uses the daemon's default thread, the one `tell` writes to. Set `INNGEST_DEV=http://127.0.0.1:8288` on every process to run against a local dev server instead of Cloud.
+The schedule PUT has no `thread`, so it lands on the daemon's default thread, the one `tell` writes to.
+
+### serve
+
+Opens the store, serves REST under `/v1`, connects to Inngest Cloud as app `aether`, registers `scheduler.tick` and the Telegram delivery functions, and drains the outbox.
+
+`--allowlist file.json` lists tool calls that run without approval. Anything unmatched becomes an approval row.
+
+```json
+{"rules":[{"tool":"shell","argv":["ls","..."]}]}
+```
+
+`*` matches one argument and `...` the rest. Path-like arguments must resolve inside the thread directory.
+
+### connect
+
+Registers this machine as a host and connects as `host-<name>`. It scaffolds daemons on `daemon/conjure.requested` and spawns the `run` command from each daemon's `aether.json` under `--root` with a scrubbed env plus `AETHER_URL`, `AETHER_TOKEN`, and the Inngest keys.
+
+`--sdk` is the `@aether/daemon` dependency written into scaffolds. The default, `file:../../packages/daemon`, fits `--root ./daemons` in this repo.
+
+### Telegram
+
+Set `TELEGRAM_BOT_TOKEN` on `serve` to turn it on. Approvals and replies for a bound chat go out through the Bot API. `POST /v1/channels/telegram/webhook` takes text and the approve/deny buttons, authenticated only by `TELEGRAM_WEBHOOK_SECRET`. First contact binds the chat to the daemon's default thread; send `/start <daemon>` when several exist. `TELEGRAM_API_URL` points the client at a fake for local runs.
 
 ## Progress
 
