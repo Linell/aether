@@ -13,9 +13,10 @@ MVP: Go control plane and CLI, one droplet host, one TypeScript daemon, and Tele
 
 ## Run
 
-Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refuses to start without them.
+Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refuses to start without them. The Inngest keys come from the Cloud dashboard; the token is any secret you pick, shared by `serve`, the CLI, hosts, and daemons.
 
 ```
+export AETHER_TOKEN=$(openssl rand -hex 32)
 make build
 bin/aether serve   --db aether.db --listen :8080
 bin/aether connect --aether http://127.0.0.1:8080 --root ./daemons
