@@ -9,38 +9,35 @@ import (
 )
 
 func (s *server) handleThreadReply(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Text string `json:"text"`
-	}
+	var body messageBody
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	replyID, err := s.insertReply(r.Context(), r.PathValue("id"), body.Text)
-	respond(w, http.StatusOK, map[string]string{"reply": replyID}, err)
+	if body.ID == "" {
+		body.ID = store.NewID()
+	}
+	err := s.insertReply(r.Context(), r.PathValue("id"), body)
+	respond(w, http.StatusOK, map[string]string{"reply": body.ID}, err)
 }
 
-func (s *server) insertReply(ctx context.Context, threadID, text string) (string, error) {
-	replyID := store.NewID()
-	err := s.store.Tx(ctx, func(tx *store.Tx) error {
+func (s *server) insertReply(ctx context.Context, threadID string, body messageBody) error {
+	return s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemon, err := threadDaemonName(ctx, tx, threadID)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO messages (id, thread_id, role, text, status) VALUES (?, ?, 'assistant', ?, 'sent')`,
-			replyID, threadID, text,
-		); err != nil {
+		inserted, err := insertMessage(ctx, tx, threadID, "assistant", body)
+		if err != nil || !inserted {
 			return err
 		}
 		_, err = tx.EnqueueOutbox(ctx, contract.EventMessageReplied, contract.MessageRepliedPayload{
 			Daemon: daemon,
 			Thread: threadID,
-			Reply:  replyID,
-			Text:   text,
+			Reply:  body.ID,
+			Text:   body.Text,
 		})
 		return err
 	})
-	return replyID, err
 }
 
 func (s *server) handleThreadApprovals(w http.ResponseWriter, r *http.Request) {

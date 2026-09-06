@@ -18,6 +18,16 @@ export interface Schedule {
 
 export type ScheduleInput = Omit<Schedule, "id" | "daemon" | "next_run_at">;
 
+export type MarkerKind = "schedule.stale" | "turn.failed" | "memory.conflict";
+
+export interface Marker {
+  id: string;
+  kind: MarkerKind;
+  thread: string;
+  ref: string;
+  detail: string;
+}
+
 export class AetherHttpError extends Error {
   readonly status: number;
   readonly body: string;
@@ -31,7 +41,8 @@ export class AetherHttpError extends Error {
 }
 
 export interface AetherClient {
-  reply(thread: string, text: string): Promise<void>;
+  reply(thread: string, text: string, id?: string): Promise<void>;
+  putMarker(daemon: string, marker: Marker): Promise<void>;
   requestApproval(thread: string, calls: ToolCall[]): Promise<{ approval: string }>;
   getSoul(daemon: string): Promise<VersionedDocument>;
   getMemory(daemon: string): Promise<VersionedDocument>;
@@ -63,8 +74,11 @@ export function createClient(options: CreateClientOptions): AetherClient {
   }
 
   return {
-    async reply(thread, text) {
-      await request("POST", `/threads/${thread}/reply`, { text });
+    async reply(thread, text, id) {
+      await request("POST", `/threads/${thread}/reply`, { id, text });
+    },
+    async putMarker(daemon, marker) {
+      await request("POST", `/daemons/${daemon}/markers`, marker);
     },
     requestApproval: (thread, calls) => request("POST", `/threads/${thread}/approvals`, { calls }),
     getSoul: (daemon) => request("GET", `/daemons/${daemon}/soul`),

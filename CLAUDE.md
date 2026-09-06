@@ -12,7 +12,7 @@ Read `ai_spec.md` before changing anything. It is decided; argue in the spec, no
 - `internal/inngest`: publisher, Connect, and the static `scheduler.tick` function.
 - `internal/scheduler`: finds due schedules, fires or writes a skipped marker.
 - `internal/host`: supervisor that spawns each daemon's `aether.json` run command with a scrubbed env.
-- `packages/daemon`: `@aether/daemon`, bun, TypeScript strict, zero runtime deps until Inngest lands.
+- `packages/daemon`: `@aether/daemon`, bun, TypeScript strict. Runtime deps: `inngest` only. `start(daemon)` connects as `daemon-<name>` and runs the turn function.
 
 ## Rules
 

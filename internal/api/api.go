@@ -30,6 +30,7 @@ func (s *server) v1() http.Handler {
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
 	mux.HandleFunc("POST /daemons", s.handleCreateDaemon)
 	mux.HandleFunc("POST /daemons/{name}/messages", s.handleCreateMessage)
+	mux.HandleFunc("POST /daemons/{name}/markers", s.handleCreateMarker)
 	mux.HandleFunc("GET /daemons/{name}/soul", s.handleGetSoul)
 	mux.HandleFunc("GET /daemons/{name}/memory", s.handleGetMemory)
 	mux.HandleFunc("PUT /daemons/{name}/memory", s.handlePutMemory)

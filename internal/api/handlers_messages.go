@@ -40,7 +40,7 @@ func (s *server) createMessage(ctx context.Context, name string, body messageBod
 		if threadID, err = ensureThread(ctx, tx, daemonID); err != nil {
 			return err
 		}
-		inserted, err := insertMessage(ctx, tx, threadID, body)
+		inserted, err := insertMessage(ctx, tx, threadID, "user", body)
 		if err != nil || !inserted {
 			return err
 		}
@@ -52,10 +52,10 @@ func (s *server) createMessage(ctx context.Context, name string, body messageBod
 	return threadID, err
 }
 
-func insertMessage(ctx context.Context, tx store.DBTX, threadID string, body messageBody) (bool, error) {
+func insertMessage(ctx context.Context, tx store.DBTX, threadID, role string, body messageBody) (bool, error) {
 	out, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO messages (id, thread_id, role, text, status) VALUES (?, ?, 'user', ?, 'sent')`,
-		body.ID, threadID, body.Text)
+		`INSERT OR IGNORE INTO messages (id, thread_id, role, text, status) VALUES (?, ?, ?, ?, 'sent')`,
+		body.ID, threadID, role, body.Text)
 	if err != nil {
 		return false, err
 	}

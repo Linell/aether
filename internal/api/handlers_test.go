@@ -142,3 +142,31 @@ func TestCreateMessageReusesThreadAndDedupes(t *testing.T) {
 		t.Errorf("thread directory rows = %d, want 1", n)
 	}
 }
+
+func TestReplyWithClientIDDedupes(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	path := map[string]string{"id": "t1"}
+
+	call(s.handleThreadReply, http.MethodPost, `{"id":"run-1:reply","text":"hello"}`, path)
+	call(s.handleThreadReply, http.MethodPost, `{"id":"run-1:reply","text":"hello"}`, path)
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'daemon/message.replied'`); n != 1 {
+		t.Errorf("outbox count = %d, want 1", n)
+	}
+}
+
+func TestCreateMarkerRejectsUnknownKind(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	path := map[string]string{"name": "daemon-1"}
+
+	if rec := call(s.handleCreateMarker, http.MethodPost, `{"kind":"made.up","ref":"x"}`, path); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+	if rec := call(s.handleCreateMarker, http.MethodPost, `{"kind":"schedule.stale","thread":"t1","ref":"s1","detail":"{}"}`, path); rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM markers WHERE kind = 'schedule.stale'`); n != 1 {
+		t.Errorf("markers = %d, want 1", n)
+	}
+}
