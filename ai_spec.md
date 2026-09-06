@@ -19,7 +19,7 @@ The architecture below is decided. MVP limits the supported capabilities, not th
 - Go control plane and CLI, one host on the droplet, and one TypeScript daemon using `@aether/daemon`.
 - SQLite application state and Inngest Cloud execution, with messages, memory, scheduled morning review, and durable tool approvals.
 - Telegram for messages and approvals; CLI for lifecycle commands and sending text.
-- Complete when a message, scheduled task, and approved tool call work end to end, including retry deduplication, approval recovery after restart, and visible failure or stale-work markers.
+- Complete when a message, scheduled task, and approved tool call work end to end, including retry deduplication, approval recovery after restart, and visible failure or stale-work markers. Order step 1 is a gate, not a preference.
 
 After MVP: laptop/second-host rollout and deploy automation, self-change, TUI, web, Slack, `@aether/client`, and Python or other daemon SDKs. Their descriptions below are the target design, not MVP requirements.
 
@@ -41,7 +41,8 @@ droplet                                  laptop
 - **A host** is a machine that ran `aether connect`. It supervises daemon processes by running the command in
   each one's manifest.
 - **A daemon** is a directory on one host, run as its own Inngest app `daemon-<name>`. Wherever it connects
-  from is where it lives.
+  from is where it lives. One app per daemon holds into the tens; past that, consolidate to one app per host,
+  still filtering on `event.data.daemon`.
 - **SQLite** holds daemons, souls, memory, threads, messages, approvals, schedules, and hosts. Soul and
   memory are whole documents in rows, and every write is versioned.
 - One aether instance owns the database on persistent local disk, with WAL mode and backups; hosts and daemons access state through REST.
@@ -64,7 +65,7 @@ Canonical event names use `scope/name.action`. Commands end in `.requested`; rep
 | `daemon/dismiss.requested` | aether -> host | daemon | Request stop + archive. |
 | `daemon/change.requested` | daemon -> aether | daemon, patch, tests | Request approval for a self-change patch. |
 
-A daemon's functions filter on `event.data.daemon`. Aether's adapters take everything. Register functions before dispatching work.
+A daemon's functions filter on `event.data.daemon`. The turn function sets concurrency key `event.data.thread`, limit 1. Aether's adapters take everything. Register functions before dispatching work.
 Connect's app semaphore keeps offline work queued without consuming retries. Pending runs execute on reconnect,
 subject to cancellation, timeouts, and retention; this is not an indefinite-delivery guarantee.
 
@@ -82,7 +83,8 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 ## Action policy
 
 - MVP uses an operator-managed allowlist for actions that may run without approval; daemons cannot change it. Own-schedule management is allowed by default.
-- Rules match the tool and constrained arguments, paths, and working directory, not just a shell-command prefix. Unmatched actions require operator approval; actions outside the daemon's permissions are denied.
+- Rules match the tool and constrained arguments, paths, and working directory, not just a shell-command prefix. Matching runs on resolved paths and a scrubbed environment, never raw strings. Unmatched actions require operator approval; actions outside the daemon's permissions are denied.
+- Channel text, memory, and tool output are untrusted. They can request an action; they cannot widen a rule.
 - Approval covers one operation's exact tool, arguments, and execution context; retries retain that operation's identity.
 - After MVP: explore a separate model judging actions not covered by the allowlist. Uncertain or unavailable judgments fall back to operator approval; model approval cannot override permission boundaries. This is risk assessment, not a sandbox.
 
@@ -99,7 +101,7 @@ After MVP.
 - `aether connect` registers this machine, stores a host token, installs a service, starts `host-<machine>`.
 - `aether conjure <name> [--host h]` inserts a row and sends `daemon/conjure.requested` with language `ts`. The host
   scaffolds a TypeScript project, installs, runs `git init`, and spawns the manifest's `run`. Language selection comes with future SDKs.
-- `aether daemon <name> deploy` sends `daemon/deploy.requested`. The host pulls, installs, restarts.
+- `aether daemon <name> deploy` sends `daemon/deploy.requested`. The host pulls, installs, restarts. Aether then compares the synced function set to the pre-deploy set and marks the deploy failed if it regressed.
 - `aether dismiss <name>` archives the row and sends `daemon/dismiss.requested`. The host stops the child.
 - `aether tell <name> <text>` sends `aether/message.sent`. `aether summon <name>` opens the TUI on one daemon.
 - On boot a host reads its daemons from aether and spawns any not running. Spawning is idempotent.
