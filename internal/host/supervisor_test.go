@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/linell/aether/internal/rest"
 )
@@ -58,6 +59,22 @@ func TestReconcileSpawnsExactlyOnce(t *testing.T) {
 	}
 
 	sup.Stop()
+}
+
+func TestSpawnOutlivesRequestContext(t *testing.T) {
+	root := t.TempDir()
+	writeManifest(t, filepath.Join(root, "foo"), Manifest{Name: "foo", Run: "sleep 30"})
+	sup := New(root, &fakeRegistry{}, BaseEnv())
+	sup.ctx = context.Background()
+	defer sup.Stop()
+
+	reqCtx, cancel := context.WithCancel(context.Background())
+	sup.reconcileOne(reqCtx, "foo")
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+	if cmd := sup.running["foo"]; cmd == nil || cmd.ProcessState != nil {
+		t.Fatal("daemon process died with the request context")
+	}
 }
 
 func TestClientDaemons(t *testing.T) {

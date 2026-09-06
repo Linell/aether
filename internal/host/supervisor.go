@@ -19,6 +19,7 @@ type Supervisor struct {
 	Env     []string
 	mu      sync.Mutex
 	running map[string]*exec.Cmd
+	ctx     context.Context
 }
 
 func New(root string, reg Registry, env []string) *Supervisor {
@@ -40,6 +41,9 @@ func (s *Supervisor) Conjure(ctx context.Context, name string) error {
 }
 
 func (s *Supervisor) Run(ctx context.Context, interval time.Duration) error {
+	s.mu.Lock()
+	s.ctx = ctx
+	s.mu.Unlock()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -96,7 +100,7 @@ func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 	if _, ok := s.running[name]; ok {
 		return
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", m.Run)
+	cmd := exec.CommandContext(s.processContext(ctx), "sh", "-c", m.Run)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = dir
 	cmd.Env = s.Env
@@ -108,6 +112,13 @@ func (s *Supervisor) spawn(ctx context.Context, name, dir string, m Manifest) {
 	}
 	s.running[name] = cmd
 	go s.awaitExit(name, cmd)
+}
+
+func (s *Supervisor) processContext(fallback context.Context) context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return fallback
 }
 
 func (s *Supervisor) awaitExit(name string, cmd *exec.Cmd) {
