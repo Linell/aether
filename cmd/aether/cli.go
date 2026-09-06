@@ -23,15 +23,12 @@ func restClient(aether string) (*rest.Client, error) {
 func conjure(args []string) error {
 	fs := flag.NewFlagSet("conjure", flag.ExitOnError)
 	aether := fs.String("aether", "http://127.0.0.1:8080", "aether base URL")
-	host := fs.String("host", "", "host that will run the daemon")
+	host := fs.String("host", instanceID(), "host that will run the daemon")
 	class := fs.String("class", "anchored", "daemon class: anchored or opportunistic")
 	policy := fs.String("policy", "queue", "offline policy: queue, skip, or ttl")
-	name, err := parseName(fs, args, "conjure <name> --host h")
+	name, err := parseName(fs, args, "conjure <name> [--host h]")
 	if err != nil {
 		return err
-	}
-	if *host == "" {
-		return errors.New("--host is required")
 	}
 	client, err := restClient(*aether)
 	if err != nil {

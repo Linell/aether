@@ -4,9 +4,11 @@ set -eu
 cd "$(dirname "$0")/.."
 
 if [ -f .env ]; then
+	shell_env=$(export -p)
 	set -a
 	. ./.env
 	set +a
+	eval "$shell_env"
 fi
 
 : "${AETHER_TOKEN:?set AETHER_TOKEN (see .env.example)}"

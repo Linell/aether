@@ -28,6 +28,7 @@ func main() {
 	if len(os.Args) < 2 {
 		exitUsage()
 	}
+	fatalOnErr(loadDotEnv(".env"))
 	switch os.Args[1] {
 	case "serve":
 		fatalOnErr(serve(os.Args[2:]))

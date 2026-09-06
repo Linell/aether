@@ -17,7 +17,9 @@ Set `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, and `INNGEST_SIGNING_KEY`. Aether refus
 
 You need Go, bun, Node (for `npx`), and curl. `serve` listens on 8080 and the dev server on 8288 by default.
 
-The quick way is `make up`. Copy `.env.example` to `.env` (git ignores it), fill in the keys, and run it. It builds, starts a local Inngest dev server when `INNGEST_DEV` is set and nothing answers there, then starts `serve` and `connect` on this machine. All three log to the terminal. Ctrl-C stops all of them, and if one exits the rest stop too. `ALLOWLIST`, `DB`, `LISTEN`, and `ROOT` in `.env` pass through to the flags below.
+Every `aether` command also reads `.env` from the working directory, filling in variables the shell has not already set. Copy `.env.example` to `.env` (git ignores it) and fill in the keys once.
+
+The quick way is `make up`. It builds, starts a local Inngest dev server when `INNGEST_DEV` is set and nothing answers there, then starts `serve` and `connect` on this machine. All three log to the terminal. Ctrl-C stops all of them, and if one exits the rest stop too. `ALLOWLIST`, `DB`, `LISTEN`, and `ROOT` in `.env` pass through to the flags below.
 
 ```
 cp .env.example .env    # then fill in the keys
@@ -31,7 +33,7 @@ export AETHER_TOKEN=$(openssl rand -hex 32) INNGEST_EVENT_KEY=... INNGEST_SIGNIN
 make build
 bin/aether serve   --db aether.db --listen :8080
 bin/aether connect --aether http://127.0.0.1:8080 --root ./daemons
-bin/aether conjure foo --host $(hostname)
+bin/aether conjure foo                 # --host defaults to this machine
 bin/aether tell foo remember to water the plants
 bin/aether tell foo run echo hi        # outside the allowlist: pauses for approval
 bin/aether approve <approval-id>       # or deny; Telegram buttons hit the same path
@@ -84,7 +86,18 @@ Today the CLI has `serve`, `connect`, `conjure`, `tell`, `approve`, `deny`, and 
 
 Still owed: the Inngest Cloud pass from step 3 (dev server only so far), now covering the Telegram functions too.
 
-- `AETHER_TOKEN`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` on `serve`, `connect`, and every daemon; drop `INNGEST_DEV`.
-- `TELEGRAM_BOT_TOKEN` from @BotFather and a random `TELEGRAM_WEBHOOK_SECRET` on `serve`.
-- Point Telegram at aether over HTTPS: `curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" -d url=https://<aether>/v1/channels/telegram/webhook -d secret_token=$TELEGRAM_WEBHOOK_SECRET`.
-- Message the bot once (`/start <daemon>` if more than one) to bind the chat.
+Telegram needs to reach `serve` over HTTPS. Locally, `ngrok http 8080` gives you a URL; on a server, point your domain at it.
+
+1. Create a bot with `@BotFather` (`/newbot`). Put the token it returns in `.env` as `TELEGRAM_BOT_TOKEN`, and pick a random `TELEGRAM_WEBHOOK_SECRET`.
+2. Tell Telegram where to send updates:
+
+   ```
+   curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+     -d url=https://<your-host>/v1/channels/telegram/webhook \
+     -d secret_token=$TELEGRAM_WEBHOOK_SECRET
+   ```
+
+   Rerun this whenever the URL changes; free ngrok URLs change on every restart.
+3. Message the bot once (`/start <daemon>` if more than one) to bind the chat.
+
+For Cloud instead of the dev server: put `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` from the Inngest dashboard in `.env` and remove `INNGEST_DEV`.
