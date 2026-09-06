@@ -15,8 +15,13 @@ import (
 
 var (
 	errIgnored   = errors.New("ignored")
-	errDuplicate = errors.Join(errIgnored, errors.New("duplicate update"))
+	errDuplicate = ignored("duplicate update")
 )
+
+type ignored string
+
+func (e ignored) Error() string        { return string(e) }
+func (e ignored) Is(target error) bool { return target == errIgnored }
 
 type Telegram struct {
 	Client        *telegram.Client
@@ -52,7 +57,7 @@ func (s *server) handleUpdate(ctx context.Context, u telegram.Update) (any, erro
 	case u.Message != nil && u.Message.Text != "":
 		return s.telegramText(ctx, u)
 	}
-	return nil, errIgnored
+	return nil, ignored("no text or callback")
 }
 
 func (s *server) telegramText(ctx context.Context, u telegram.Update) (map[string]string, error) {
@@ -131,7 +136,7 @@ func daemonForChat(ctx context.Context, q store.DBTX, text string) (string, erro
 		return "", err
 	}
 	if len(names) != 1 {
-		return "", errors.Join(errIgnored, errors.New("unbound chat: send /start <daemon>"))
+		return "", ignored("unbound chat: send /start <daemon>")
 	}
 	return names[0], nil
 }
@@ -139,7 +144,7 @@ func daemonForChat(ctx context.Context, q store.DBTX, text string) (string, erro
 func (s *server) telegramCallback(ctx context.Context, u telegram.Update) (approvalDoc, error) {
 	decision, ok := telegram.ParseCallback(u.Callback.Data)
 	if !ok {
-		return approvalDoc{}, errIgnored
+		return approvalDoc{}, ignored("unknown callback")
 	}
 	var doc approvalDoc
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
