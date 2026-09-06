@@ -99,18 +99,26 @@ func serve(args []string) error {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer st.Close()
-	handler, err := api.New(st, api.Options{Token: os.Getenv("AETHER_TOKEN"), Rules: rules})
+	tg := telegram.ConfigFromEnv()
+	handler, err := api.New(st, api.Options{Token: os.Getenv("AETHER_TOKEN"), Rules: rules, Telegram: telegramOption(tg)})
 	if err != nil {
 		return err
 	}
-	if err := startInngest(ctx, st, *drainEvery); err != nil {
+	if err := startInngest(ctx, st, *drainEvery, tg); err != nil {
 		return err
 	}
 	log.Printf("aether listening on %s (db=%s)", *listen, *dbPath)
 	return runServer(ctx, &http.Server{Addr: *listen, Handler: handler})
 }
 
-func startInngest(ctx context.Context, st *store.Store, drainEvery time.Duration) error {
+func telegramOption(cfg telegram.Config) api.Telegram {
+	if !cfg.Enabled() {
+		return api.Telegram{}
+	}
+	return api.Telegram{Client: telegram.NewClient(cfg), WebhookSecret: cfg.WebhookSecret}
+}
+
+func startInngest(ctx context.Context, st *store.Store, drainEvery time.Duration, tg telegram.Config) error {
 	pub, err := inngest.New(inngest.OptionsFromEnv(inngest.AppID))
 	if err != nil {
 		return err
@@ -118,7 +126,7 @@ func startInngest(ctx context.Context, st *store.Store, drainEvery time.Duration
 	if err := inngest.RegisterScheduler(pub, st); err != nil {
 		return err
 	}
-	if err := registerTelegram(pub, st); err != nil {
+	if err := registerTelegram(pub, st, tg); err != nil {
 		return err
 	}
 	if _, err := inngest.Connect(ctx, pub, instanceID()); err != nil {
@@ -128,8 +136,7 @@ func startInngest(ctx context.Context, st *store.Store, drainEvery time.Duration
 	return nil
 }
 
-func registerTelegram(pub *inngest.Client, st *store.Store) error {
-	cfg := telegram.ConfigFromEnv()
+func registerTelegram(pub *inngest.Client, st *store.Store, cfg telegram.Config) error {
 	if !cfg.Enabled() {
 		log.Print("telegram: TELEGRAM_BOT_TOKEN not set, channel disabled")
 		return nil

@@ -38,16 +38,20 @@ func (s *server) createMessage(ctx context.Context, name string, body messageBod
 		if threadID, err = ensureThread(ctx, tx, daemonID, name); err != nil {
 			return err
 		}
-		inserted, err := insertMessage(ctx, tx, threadID, "user", body)
-		if err != nil || !inserted {
-			return err
-		}
-		_, err = tx.EnqueueOutbox(ctx, contract.EventMessageSent, contract.MessageSentPayload{
-			Daemon: name, Thread: threadID, Message: body.ID, Text: body.Text,
-		})
-		return err
+		return insertUserMessage(ctx, tx, name, threadID, body)
 	})
 	return threadID, err
+}
+
+func insertUserMessage(ctx context.Context, tx *store.Tx, daemon, threadID string, body messageBody) error {
+	inserted, err := insertMessage(ctx, tx, threadID, "user", body)
+	if err != nil || !inserted {
+		return err
+	}
+	_, err = tx.EnqueueOutbox(ctx, contract.EventMessageSent, contract.MessageSentPayload{
+		Daemon: daemon, Thread: threadID, Message: body.ID, Text: body.Text,
+	})
+	return err
 }
 
 func insertMessage(ctx context.Context, tx store.DBTX, threadID, role string, body messageBody) (bool, error) {

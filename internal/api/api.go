@@ -11,20 +11,24 @@ import (
 )
 
 type server struct {
-	store *store.Store
-	rules []policy.Rule
+	store    *store.Store
+	rules    []policy.Rule
+	telegram Telegram
 }
 
 type Options struct {
-	Token string
-	Rules []policy.Rule
+	Token    string
+	Rules    []policy.Rule
+	Telegram Telegram
 }
+
+const telegramWebhookPath = "/v1/channels/telegram/webhook"
 
 func New(st *store.Store, o Options) (http.Handler, error) {
 	if o.Token == "" {
 		return nil, errors.New("api: token must not be empty")
 	}
-	s := &server{store: st, rules: o.Rules}
+	s := &server{store: st, rules: o.Rules, telegram: o.Telegram}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.Handle("/v1/", http.StripPrefix("/v1", s.v1()))
@@ -33,6 +37,7 @@ func New(st *store.Store, o Options) (http.Handler, error) {
 
 func (s *server) v1() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /channels/telegram/webhook", s.handleTelegramWebhook)
 	mux.HandleFunc("GET /threads/{id}", s.handleGetThread)
 	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
@@ -69,7 +74,9 @@ func withAuth(next http.Handler, token string) http.Handler {
 }
 
 func isPublic(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == "/healthz"
+	healthz := r.Method == http.MethodGet && r.URL.Path == "/healthz"
+	webhook := r.Method == http.MethodPost && r.URL.Path == telegramWebhookPath
+	return healthz || webhook
 }
 
 func bearerMatches(r *http.Request, token string) bool {

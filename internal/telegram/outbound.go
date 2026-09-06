@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -114,15 +113,4 @@ func (o *Outbound) pendingCalls(ctx context.Context, p contract.ApprovalRequeste
 		out = append(out, pc)
 	}
 	return out, nil
-}
-
-func (o *Outbound) Pending(ctx context.Context, approval string) (PendingCall, error) {
-	var pc PendingCall
-	var args, callCtx string
-	err := o.Store.DB().QueryRowContext(ctx,
-		`SELECT a.id, a.status, d.name, a.call_id, a.tool, a.args, a.context
-		 FROM approvals a JOIN threads t ON t.id = a.thread_id JOIN daemons d ON d.id = t.daemon_id WHERE a.id = ?`,
-		approval).Scan(&pc.Approval, &pc.Status, &pc.Daemon, &pc.Call.ID, &pc.Call.Tool, &args, &callCtx)
-	pc.Call.Args, pc.Call.Context = json.RawMessage(args), json.RawMessage(callCtx)
-	return pc, err
 }

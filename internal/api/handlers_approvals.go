@@ -53,13 +53,19 @@ func (s *server) answerApproval(ctx context.Context, id, decision string) (appro
 	var doc approvalDoc
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		var err error
-		if doc, err = approvalByID(ctx, tx, id); err != nil || doc.Status != "pending" {
-			return err
-		}
-		doc.Status = decision
-		return recordDecision(ctx, tx, doc)
+		doc, err = answerApproval(ctx, tx, id, decision)
+		return err
 	})
 	return doc, err
+}
+
+func answerApproval(ctx context.Context, tx *store.Tx, id, decision string) (approvalDoc, error) {
+	doc, err := approvalByID(ctx, tx, id)
+	if err != nil || doc.Status != "pending" {
+		return doc, err
+	}
+	doc.Status = decision
+	return doc, recordDecision(ctx, tx, doc)
 }
 
 func recordDecision(ctx context.Context, tx *store.Tx, doc approvalDoc) error {

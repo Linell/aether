@@ -21,6 +21,12 @@ func lookup(ctx context.Context, q store.DBTX, query string, arg any, dest ...an
 	return err
 }
 
+func scanString(rows *sql.Rows) (string, error) {
+	var s string
+	err := rows.Scan(&s)
+	return s, err
+}
+
 func inserted(out sql.Result) (bool, error) {
 	n, err := out.RowsAffected()
 	return n == 1, err
