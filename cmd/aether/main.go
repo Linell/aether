@@ -76,6 +76,12 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := inngest.RegisterScheduler(pub, st); err != nil {
+		return err
+	}
+	if _, err := inngest.Connect(ctx, pub, instanceID()); err != nil {
+		return err
+	}
 	go store.RunDrain(ctx, st, pub, *drainEvery)
 	log.Printf("aether listening on %s (db=%s)", *listen, *dbPath)
 	return runServer(ctx, &http.Server{Addr: *listen, Handler: handler})
@@ -87,6 +93,14 @@ func newInngest() (*inngest.Client, error) {
 		return nil, err
 	}
 	return inngest.New(opts)
+}
+
+func instanceID() string {
+	name, err := os.Hostname()
+	if err != nil {
+		return inngest.AppID
+	}
+	return name
 }
 
 func runServer(ctx context.Context, srv *http.Server) error {

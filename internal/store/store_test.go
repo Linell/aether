@@ -35,7 +35,7 @@ func TestOpenAppliesMigrationsAndWAL(t *testing.T) {
 
 	tables := []string{
 		"hosts", "daemons", "souls", "memory", "threads", "messages",
-		"approvals", "schedules", "operations", "outbox", "schema_migrations",
+		"approvals", "schedules", "operations", "outbox", "markers", "schema_migrations",
 	}
 	for _, tbl := range tables {
 		var name string
