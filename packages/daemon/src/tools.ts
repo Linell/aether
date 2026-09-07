@@ -16,6 +16,13 @@ export interface ToolDeps {
 
 export type ToolFactory = (deps: ToolDeps) => Tool;
 
+export type ToolSource = ToolFactory | ((deps: ToolDeps) => Promise<Tool[]>);
+
+export async function toolsFor(sources: ToolSource[], deps: ToolDeps): Promise<Tool[]> {
+  const made = await Promise.all(sources.map((make) => make(deps)));
+  return made.flat();
+}
+
 export const OutputLimit = 4000;
 
 const ShellArgs = z.object({

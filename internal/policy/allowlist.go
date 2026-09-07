@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 )
 
 type Rule struct {
-	Daemon string   `json:"daemon"`
-	Tool   string   `json:"tool"`
-	Argv   []string `json:"argv"`
-	Path   string   `json:"path"`
+	Daemon string                     `json:"daemon"`
+	Tool   string                     `json:"tool"`
+	Argv   []string                   `json:"argv"`
+	Path   string                     `json:"path"`
+	Args   map[string]json.RawMessage `json:"args"`
 }
 
 type Request struct {
@@ -58,7 +60,7 @@ func Match(rules []Rule, req Request) (Rule, bool) {
 }
 
 func (r Rule) String() string {
-	return strings.Join(strings.Fields(fmt.Sprintf("%s %s %s %s", r.Daemon, r.Tool, strings.Join(r.Argv, " "), r.Path)), " ")
+	return strings.Join(strings.Fields(fmt.Sprintf("%s %s %s %s %s", r.Daemon, r.Tool, strings.Join(r.Argv, " "), r.Path, argsString(r.Args))), " ")
 }
 
 func (r Rule) matches(req Request) bool {
@@ -70,8 +72,35 @@ func (r Rule) matches(req Request) bool {
 		return len(r.Argv) > 0 && matchShell(r.Argv, req)
 	case "read_file", "edit_file", "write_file":
 		return r.Path != "" && matchPath(r.Path, req)
+	default:
+		return r.Args != nil && matchArgs(r.Args, req)
 	}
-	return false
+}
+
+func argsString(args map[string]json.RawMessage) string {
+	if args == nil {
+		return ""
+	}
+	b, _ := json.Marshal(args)
+	return string(b)
+}
+
+func matchArgs(want map[string]json.RawMessage, req Request) bool {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(req.Args, &args); err != nil {
+		return false
+	}
+	for k, v := range want {
+		if !sameJSON(v, args[k]) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameJSON(a, b json.RawMessage) bool {
+	var x, y any
+	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
 }
 
 func matchPath(pattern string, req Request) bool {

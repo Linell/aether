@@ -13,7 +13,7 @@ Read `ai_spec.md` before changing anything. It is decided; argue in the spec, no
 - `internal/scheduler`: finds due schedules, fires or writes a skipped marker.
 - `internal/host`: supervisor that spawns each daemon's `aether.json` run command with a scrubbed env.
 - `web`: the landing page, Astro and pnpm, deployed to GitHub Pages by `.github/workflows/pages.yml`. No runtime relationship to the rest.
-- `packages/daemon`: `@aether/daemon`, bun, TypeScript strict. Runtime deps: `inngest` (pinned), `@openai/agents`, `@openai/agents-extensions`, `ai`, `@ai-sdk/anthropic`, `zod`. `start(daemon)` connects as `daemon-<name>` and builds one Agents JS agent per turn.
+- `packages/daemon`: `@aether/daemon`, bun, TypeScript strict. Runtime deps: `inngest` (pinned), `@openai/agents`, `@openai/agents-extensions`, `@modelcontextprotocol/client`, `ai`, `@ai-sdk/anthropic`, `zod`. `start(daemon)` connects as `daemon-<name>` and builds one Agents JS agent per turn. `mcp()` wraps an MCP server's tools in the same approval and step plumbing as the built-ins; never pass `mcpServers` to the Agent.
 
 ## Rules
 

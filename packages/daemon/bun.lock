@@ -6,6 +6,7 @@
       "name": "@aether/daemon",
       "dependencies": {
         "@ai-sdk/anthropic": "^4.0.49",
+        "@modelcontextprotocol/client": "^2.0.0",
         "@openai/agents": "^0.17.0",
         "@openai/agents-extensions": "^0.17.0",
         "ai": "^7.0.93",

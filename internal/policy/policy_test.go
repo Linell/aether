@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -164,5 +165,31 @@ func TestMatchPathRules(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s: match = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestMatchArgsSubset(t *testing.T) {
+	rules := []Rule{
+		{Tool: "get_mlb_schedule", Args: map[string]json.RawMessage{"team": json.RawMessage(`"Braves"`)}},
+		{Tool: "get_mlb_standings", Args: map[string]json.RawMessage{}},
+		{Tool: "get_mlb_roster"},
+	}
+	cases := []struct {
+		tool, args string
+		want       bool
+	}{
+		{"get_mlb_schedule", `{"team":"Braves","date":"2026-09-06"}`, true},
+		{"get_mlb_schedule", `{"team":"Mets"}`, false},
+		{"get_mlb_schedule", `{}`, false},
+		{"get_mlb_standings", `{"season":2026}`, true},
+		{"get_mlb_roster", `{}`, false},
+	}
+	for _, c := range cases {
+		if _, ok := Match(rules, Request{Tool: c.tool, Args: json.RawMessage(c.args)}); ok != c.want {
+			t.Errorf("Match(%s %s) = %v, want %v", c.tool, c.args, ok, c.want)
+		}
+	}
+	if got := rules[0].String(); got != `get_mlb_schedule {"team":"Braves"}` {
+		t.Errorf("String() = %q", got)
 	}
 }

@@ -12,7 +12,7 @@ import {
 import { historyItems, sinceLastUser } from "./history";
 import { DocLimit, instructionsFor } from "./instructions";
 import type { Model } from "./model";
-import type { ToolDeps, ToolFactory } from "./tools";
+import { toolsFor, type ToolDeps, type ToolSource } from "./tools";
 
 export interface StepLike {
   run<T>(id: string, fn: () => Promise<T>): Promise<T>;
@@ -28,7 +28,7 @@ export interface TurnContext {
   runId: string;
   client: AetherClient;
   resolveModel: (daemon: Daemon, scope?: string) => Model;
-  tools: ToolFactory[];
+  tools: ToolSource[];
   step: StepLike;
   maxTurns: number;
   now?: () => Date;
@@ -84,7 +84,7 @@ export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnR
   if (event.name === Events.ApprovalAnswered && "approval" in event.data) return resume(ctx, event.data);
   const input = turnInputFor(event);
   const loaded = await load(ctx, input.thread, input.before);
-  const agent = agentFor(ctx, loaded.docs);
+  const agent = await agentFor(ctx, loaded.docs);
   const items: AgentInputItem[] = [...loaded.docs.history, { role: "user", content: input.text }];
   return conclude(ctx, loaded, await runAgent(ctx, loaded.model, agent, items));
 }
@@ -106,7 +106,7 @@ async function resume(ctx: TurnContext, data: ApprovalAnsweredPayload): Promise<
   const approval = await ctx.step.run("approval", () => ctx.client.getApproval(data.approval));
   if (approval.status === "pending" || approval.state === undefined) return { status: "ignored" };
   const loaded = await load(ctx, data.thread);
-  const agent = agentFor(ctx, loaded.docs);
+  const agent = await agentFor(ctx, loaded.docs);
   const state = await RunState.fromString(agent, approval.state);
   const item = state.getInterruptions().find((i) => callIdOf(i) === approval.call.id);
   if (!item) return { status: "ignored" };
@@ -119,7 +119,7 @@ function decide(state: RunState<unknown, Agent>, item: RunToolApprovalItem, appr
   else state.reject(item);
 }
 
-function agentFor(ctx: TurnContext, docs: Docs): Agent {
+async function agentFor(ctx: TurnContext, docs: Docs): Promise<Agent> {
   const deps: ToolDeps = {
     step: ctx.step,
     client: ctx.client,
@@ -128,7 +128,7 @@ function agentFor(ctx: TurnContext, docs: Docs): Agent {
     cwd: docs.thread.directory,
     host: docs.thread.host,
   };
-  const tools = ctx.tools.map((make) => make(deps));
+  const tools = await toolsFor(ctx.tools, deps);
   const instructions = instructionsFor({
     daemon: ctx.daemon,
     soul: docs.soul,

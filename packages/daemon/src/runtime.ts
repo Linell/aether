@@ -6,23 +6,25 @@ import { Events, TurnConcurrency } from "./contract";
 import { modelFor, modelSpecFor, type Model } from "./model";
 import { scheduleDelete, scheduleList, schedulePut } from "./schedules";
 import { editFile, readFile, writeFile } from "./files";
-import { shell, type ToolFactory } from "./tools";
+import { shell, type ToolFactory, type ToolSource } from "./tools";
 import { mark, runTurn, type StepLike, type TurnContext, type TurnEvent } from "./turn";
 
 export interface DefineDaemonOptions {
   name: string;
   model?: Model;
-  tools?: ToolFactory[];
+  tools?: ToolSource[];
 }
 
 export interface DefinedDaemon {
   name: string;
   model?: Model;
-  tools: ToolFactory[];
+  tools: ToolSource[];
   _brand: "aether-daemon";
 }
 
 export const DefaultMaxTurns = 50;
+
+export const DefaultTools: ToolFactory[] = [shell, readFile, editFile, writeFile, scheduleList, schedulePut, scheduleDelete];
 
 const Ids = { daemon: z.string(), thread: z.string() };
 
@@ -44,7 +46,7 @@ export function threadOf(event: { data?: unknown }): string {
 }
 
 export function defineDaemon(opts: DefineDaemonOptions): DefinedDaemon {
-  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? [shell, readFile, editFile, writeFile, scheduleList, schedulePut, scheduleDelete], _brand: "aether-daemon" };
+  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? DefaultTools, _brand: "aether-daemon" };
   return opts.model === undefined ? base : { ...base, model: opts.model };
 }
 
