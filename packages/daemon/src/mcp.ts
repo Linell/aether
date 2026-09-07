@@ -6,6 +6,8 @@ export type McpSource = { name: string; command: string; args?: string[] } | { n
 
 export const McpOutputLimit = 32000;
 
+export const ConnectTimeoutSeconds = 120;
+
 export type McpTools = (deps: ToolDeps) => Promise<Tool[]>;
 
 export function mcp(source: McpSource): McpTools {
@@ -24,8 +26,8 @@ export function mcpTools(server: MCPServer): McpTools {
 }
 
 function serverFor(source: McpSource): MCPServer {
-  if ("url" in source) return new MCPServerStreamableHttp({ name: source.name, url: source.url, cacheToolsList: true });
-  return new MCPServerStdio({ name: source.name, command: source.command, args: source.args ?? [], env: scrubEnv(process.env), cacheToolsList: true });
+  if ("url" in source) return new MCPServerStreamableHttp({ name: source.name, url: source.url, cacheToolsList: true, clientSessionTimeoutSeconds: ConnectTimeoutSeconds });
+  return new MCPServerStdio({ name: source.name, command: source.command, args: source.args ?? [], env: scrubEnv(process.env), cacheToolsList: true, clientSessionTimeoutSeconds: ConnectTimeoutSeconds });
 }
 
 async function list(server: MCPServer): Promise<Tool[]> {
