@@ -75,7 +75,7 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 
 - Approval pause is REST, not an event. The daemon posts the pending calls with the paused run's state; `contract/events.json` is unchanged. A later pause for the same call supersedes the earlier state.
 - Turn function retries at least 5. Routing-level `connect_no_healthy_connection` consumes one per attempt, so the budget must outlast a reconnect.
-- `GET /threads/{id}/messages` is planned, not MVP.
+- `GET /threads/{id}/messages?before=<id>&limit=<n>` returns a thread's user and assistant rows newest first, `before` exclusive. Each turn loads recent history in its `load` step, budgeted by bytes and excluding the triggering message, and feeds it to the model ahead of the request. The memory pass sees only the current turn.
 - Model is a daemon field over REST. `POST /daemons` accepts `model`, `GET /daemons/{name}` returns it, `PATCH /daemons/{name}` with `{model}` sets it. The SDK reads the daemon doc in the turn's `load` step, so a change applies on the next turn.
 
 ## Scheduling

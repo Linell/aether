@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -318,5 +320,37 @@ func TestApprovalsRequestDedupesEvent(t *testing.T) {
 	decode(t, call(s.handleGetApproval, http.MethodGet, "", map[string]string{"id": first.Approval}), &doc)
 	if doc.State != "s2" {
 		t.Errorf("state = %q, want s2", doc.State)
+	}
+}
+
+func TestListMessagesNewestFirstBeforeCursorAndLimit(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	for i, m := range []string{"m1:user:a", "m2:assistant:b", "m3:user:c", "m4:assistant:d"} {
+		p := strings.Split(m, ":")
+		storetest.Exec(t, st, `INSERT INTO messages (id, thread_id, role, text, created_at) VALUES (?, 't1', ?, ?, ?)`,
+			p[0], p[1], p[2], fmt.Sprintf("2026-09-06T07:00:0%d.000Z", i))
+	}
+	req := httptest.NewRequest(http.MethodGet, "/?before=m4&limit=2", nil)
+	req.SetPathValue("id", "t1")
+	rec := httptest.NewRecorder()
+	s.handleListMessages(rec, req)
+	var resp struct {
+		Messages []messageDoc `json:"messages"`
+	}
+	decode(t, rec, &resp)
+	got := []string{}
+	for _, m := range resp.Messages {
+		got = append(got, m.ID+":"+m.Role)
+	}
+	if want := []string{"m3:user", "m2:assistant"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("messages = %v, want %v", got, want)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/?before=missing", nil)
+	req.SetPathValue("id", "t1")
+	rec = httptest.NewRecorder()
+	s.handleListMessages(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown cursor status = %d, want 404", rec.Code)
 	}
 }

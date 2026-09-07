@@ -8,7 +8,7 @@ Read `ai_spec.md` before changing anything. It is decided; argue in the spec, no
 - `cmd/aether`: one Go binary. Control plane, host supervisor, and CLI. Stdlib `flag`, no cobra.
 - `internal/store`: SQLite (modernc, no cgo), embedded migrations, outbox, drain loop. Only aether opens the DB.
 - `internal/policy`: env scrub, `realpath` containment, allowlist matching. Security gate; lands before features.
-- `internal/api`: REST under `/v1`. Auth fails closed. No token, no server. Approval rows carry an opaque `state` blob. Daemon model config lives on the row: `POST /daemons` accepts `model`, `GET`/`PATCH /daemons/{name}` read and set it. `GET /threads/{id}/messages` is planned, not MVP.
+- `internal/api`: REST under `/v1`. Auth fails closed. No token, no server. Approval rows carry an opaque `state` blob. Daemon model config lives on the row: `POST /daemons` accepts `model`, `GET`/`PATCH /daemons/{name}` read and set it. `GET /threads/{id}/messages?before=&limit=` lists thread history newest first.
 - `internal/inngest`: publisher, Connect, and the static `scheduler.tick` function.
 - `internal/scheduler`: finds due schedules, fires or writes a skipped marker.
 - `internal/host`: supervisor that spawns each daemon's `aether.json` run command with a scrubbed env.

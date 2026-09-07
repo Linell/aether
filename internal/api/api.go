@@ -39,6 +39,7 @@ func (s *server) v1() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /channels/telegram/webhook", s.handleTelegramWebhook)
 	mux.HandleFunc("GET /threads/{id}", s.handleGetThread)
+	mux.HandleFunc("GET /threads/{id}/messages", s.handleListMessages)
 	mux.HandleFunc("POST /threads/{id}/reply", s.handleThreadReply)
 	mux.HandleFunc("POST /threads/{id}/approvals", s.handleThreadApprovals)
 	mux.HandleFunc("GET /approvals/{id}", s.handleGetApproval)
