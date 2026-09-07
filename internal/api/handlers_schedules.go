@@ -21,6 +21,7 @@ type scheduleDoc struct {
 	NextRunAt  string `json:"next_run_at"`
 	Policy     string `json:"policy"`
 	TTLSeconds *int64 `json:"ttl_seconds"`
+	Prompt     string `json:"prompt"`
 }
 
 func (s *server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
@@ -35,14 +36,14 @@ func (s *server) listSchedules(ctx context.Context, daemonName string) ([]schedu
 	}
 	scan := func(rows *sql.Rows) (scheduleDoc, error) { return scanSchedule(rows, daemonName) }
 	return store.Query(ctx, s.store.DB(), scan,
-		`SELECT id, thread_id, cron, tz, next_run_at, offline_policy, ttl_seconds
+		`SELECT id, thread_id, cron, tz, next_run_at, offline_policy, ttl_seconds, prompt
 		 FROM schedules WHERE daemon_id = ?`, daemonID)
 }
 
 func scanSchedule(rows *sql.Rows, daemonName string) (scheduleDoc, error) {
 	doc := scheduleDoc{Daemon: daemonName}
 	var ttl sql.NullInt64
-	err := rows.Scan(&doc.ID, &doc.Thread, &doc.Cron, &doc.TZ, &doc.NextRunAt, &doc.Policy, &ttl)
+	err := rows.Scan(&doc.ID, &doc.Thread, &doc.Cron, &doc.TZ, &doc.NextRunAt, &doc.Policy, &ttl, &doc.Prompt)
 	if ttl.Valid {
 		doc.TTLSeconds = &ttl.Int64
 	}
@@ -55,6 +56,7 @@ type schedulePutBody struct {
 	TZ         string `json:"tz"`
 	Policy     string `json:"policy"`
 	TTLSeconds *int64 `json:"ttl_seconds"`
+	Prompt     string `json:"prompt"`
 }
 
 func (s *server) handlePutSchedule(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +101,7 @@ func validatePolicy(policy string, ttl *int64) error {
 func (s *server) upsertSchedule(ctx context.Context, name, id string, body schedulePutBody, nextRunAt string) (scheduleDoc, error) {
 	doc := scheduleDoc{
 		ID: id, Daemon: name, Thread: body.Thread, Cron: body.Cron, TZ: body.TZ,
-		NextRunAt: nextRunAt, Policy: body.Policy, TTLSeconds: body.TTLSeconds,
+		NextRunAt: nextRunAt, Policy: body.Policy, TTLSeconds: body.TTLSeconds, Prompt: body.Prompt,
 	}
 	err := s.store.Tx(ctx, func(tx *store.Tx) error {
 		daemonID, err := anchoredDaemonID(ctx, tx, name)
@@ -109,14 +111,26 @@ func (s *server) upsertSchedule(ctx context.Context, name, id string, body sched
 		if err := checkScheduleOwnership(ctx, tx, id, daemonID); err != nil {
 			return err
 		}
-		if doc.Thread == "" {
-			if doc.Thread, err = ensureThread(ctx, tx, daemonID, name); err != nil {
-				return err
-			}
+		if doc.Thread, err = scheduleThread(ctx, tx, daemonID, name, doc.Thread); err != nil {
+			return err
 		}
 		return execUpsertSchedule(ctx, tx, daemonID, doc)
 	})
 	return doc, err
+}
+
+func scheduleThread(ctx context.Context, tx store.DBTX, daemonID, name, thread string) (string, error) {
+	if thread == "" {
+		return ensureThread(ctx, tx, daemonID, name)
+	}
+	owner, err := threadDaemonName(ctx, tx, thread)
+	if err != nil {
+		return "", err
+	}
+	if owner != name {
+		return "", errForeignThread
+	}
+	return thread, nil
 }
 
 func checkScheduleOwnership(ctx context.Context, q store.DBTX, id, daemonID string) error {
@@ -132,8 +146,8 @@ func checkScheduleOwnership(ctx context.Context, q store.DBTX, id, daemonID stri
 
 func execUpsertSchedule(ctx context.Context, tx store.DBTX, daemonID string, doc scheduleDoc) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO schedules (id, daemon_id, thread_id, cron, tz, next_run_at, offline_policy, ttl_seconds)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO schedules (id, daemon_id, thread_id, cron, tz, next_run_at, offline_policy, ttl_seconds, prompt)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			daemon_id = excluded.daemon_id,
 			thread_id = excluded.thread_id,
@@ -141,8 +155,9 @@ func execUpsertSchedule(ctx context.Context, tx store.DBTX, daemonID string, doc
 			tz = excluded.tz,
 			next_run_at = excluded.next_run_at,
 			offline_policy = excluded.offline_policy,
-			ttl_seconds = excluded.ttl_seconds`,
-		doc.ID, daemonID, doc.Thread, doc.Cron, doc.TZ, doc.NextRunAt, doc.Policy, doc.TTLSeconds)
+			ttl_seconds = excluded.ttl_seconds,
+			prompt = excluded.prompt`,
+		doc.ID, daemonID, doc.Thread, doc.Cron, doc.TZ, doc.NextRunAt, doc.Policy, doc.TTLSeconds, doc.Prompt)
 	return err
 }
 

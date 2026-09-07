@@ -40,6 +40,7 @@ const samples: Record<EventName, Record<string, unknown>> = {
     schedule: "s1",
     due_at: "2026-09-05T00:00:00Z",
     deadline_at: "2026-09-05T00:05:00Z",
+    prompt: "Review the day",
   } satisfies ScheduleFiredPayload,
   [Events.ApprovalAnswered]: {
     daemon: "foo",

@@ -228,6 +228,25 @@ func TestSchedulePutWithoutThreadUsesDefaultThread(t *testing.T) {
 	}
 }
 
+func TestSchedulePutRejectsForeignThreadAndKeepsPrompt(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	storetest.Exec(t, st, `INSERT INTO daemons (id, name, host_id, class, offline_policy) VALUES ('d2', 'daemon-2', 'h1', 'anchored', 'queue')`)
+	storetest.Exec(t, st, `INSERT INTO threads (id, daemon_id, host_id, directory) VALUES ('t2', 'd2', 'h1', '/tmp/t2')`)
+	path := map[string]string{"name": "daemon-1", "id": "s1"}
+
+	rec := call(s.handlePutSchedule, http.MethodPut, `{"thread":"t2","cron":"0 7 * * *","tz":"UTC","policy":"queue"}`, path)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	rec = call(s.handlePutSchedule, http.MethodPut, `{"cron":"0 7 * * *","tz":"UTC","policy":"queue","prompt":"Review the day"}`, path)
+	var doc struct{ Prompt string }
+	decode(t, rec, &doc)
+	if rec.Code != http.StatusOK || doc.Prompt != "Review the day" {
+		t.Fatalf("status = %d, prompt = %q; want 200, Review the day", rec.Code, doc.Prompt)
+	}
+}
+
 func TestAnswerApprovalOnce(t *testing.T) {
 	s, st := newTestServer(t)
 	seedThread(t, st, "anchored")

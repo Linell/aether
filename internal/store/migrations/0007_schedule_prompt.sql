@@ -1,0 +1,1 @@
+ALTER TABLE schedules ADD COLUMN prompt TEXT NOT NULL DEFAULT '';

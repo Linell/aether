@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	errNotFound    = errors.New("not found")
-	errNotAnchored = errors.New("daemon is not anchored")
+	errNotFound      = errors.New("not found")
+	errNotAnchored   = errors.New("daemon is not anchored")
+	errForeignThread = errors.New("thread belongs to another daemon")
 )
 
 func lookup(ctx context.Context, q store.DBTX, query string, arg any, dest ...any) error {

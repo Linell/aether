@@ -36,6 +36,7 @@ export interface ScheduleFiredPayload {
   schedule: string;
   due_at: string;
   deadline_at: string;
+  prompt: string;
 }
 
 export interface ApprovalAnsweredPayload {

@@ -42,6 +42,7 @@ type ScheduleFiredPayload struct {
 	Schedule   string    `json:"schedule"`
 	DueAt      time.Time `json:"due_at"`
 	DeadlineAt time.Time `json:"deadline_at"`
+	Prompt     string    `json:"prompt"`
 }
 
 type ApprovalAnsweredPayload struct {

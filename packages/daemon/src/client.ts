@@ -14,6 +14,7 @@ export interface Schedule {
   next_run_at: string;
   policy: string;
   ttl_seconds?: number | null;
+  prompt: string;
 }
 
 export type ScheduleInput = Omit<Schedule, "id" | "daemon" | "next_run_at">;

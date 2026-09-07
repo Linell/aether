@@ -23,14 +23,14 @@ type Result struct {
 }
 
 type row struct {
-	id, daemonID, daemon, thread, cron, tz, policy string
-	ttl                                            sql.NullInt64
-	due                                            time.Time
+	id, daemonID, daemon, thread, cron, tz, policy, prompt string
+	ttl                                                    sql.NullInt64
+	due                                                    time.Time
 }
 
 func Tick(ctx context.Context, st *store.Store, now time.Time) (Result, error) {
 	rows, err := store.Query(ctx, st.DB(), scanRow,
-		`SELECT s.id, s.daemon_id, d.name, s.thread_id, s.cron, s.tz, s.offline_policy, s.ttl_seconds, s.next_run_at
+		`SELECT s.id, s.daemon_id, d.name, s.thread_id, s.cron, s.tz, s.offline_policy, s.ttl_seconds, s.prompt, s.next_run_at
 		 FROM schedules s JOIN daemons d ON d.id = s.daemon_id
 		 WHERE s.enabled = 1 AND s.next_run_at <= ?
 		 ORDER BY s.next_run_at, s.id`, store.FormatTime(now))
@@ -50,7 +50,7 @@ func Tick(ctx context.Context, st *store.Store, now time.Time) (Result, error) {
 func scanRow(rows *sql.Rows) (row, error) {
 	var r row
 	var due string
-	if err := rows.Scan(&r.id, &r.daemonID, &r.daemon, &r.thread, &r.cron, &r.tz, &r.policy, &r.ttl, &due); err != nil {
+	if err := rows.Scan(&r.id, &r.daemonID, &r.daemon, &r.thread, &r.cron, &r.tz, &r.policy, &r.ttl, &r.prompt, &due); err != nil {
 		return row{}, err
 	}
 	t, err := store.ParseTime(due)
@@ -127,6 +127,7 @@ func fire(ctx context.Context, tx *store.Tx, r row, deadline time.Time) error {
 		Schedule:   r.id,
 		DueAt:      r.due,
 		DeadlineAt: deadline,
+		Prompt:     r.prompt,
 	})
 	return err
 }

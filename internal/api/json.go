@@ -56,6 +56,8 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, errNotAnchored):
 		writeError(w, http.StatusUnprocessableEntity, "daemon is not anchored")
+	case errors.Is(err, errForeignThread):
+		writeError(w, http.StatusBadRequest, errForeignThread.Error())
 	case errors.Is(err, errConflict):
 		writeError(w, http.StatusConflict, "conflict")
 	default:

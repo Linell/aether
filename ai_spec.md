@@ -58,7 +58,7 @@ Canonical event names use `scope/name.action`. Commands end in `.requested`; rep
 | message | direction | payload | usage |
 |---|---|---|---|
 | `aether/message.sent` | aether -> daemon | daemon, thread, text | Deliver user text into the daemon turn loop. |
-| `aether/schedule.fired` | aether -> daemon | daemon, thread, schedule | Run one due anchored schedule. |
+| `aether/schedule.fired` | aether -> daemon | daemon, thread, schedule, prompt | Run one due anchored schedule. |
 | `aether/approval.answered` | aether -> daemon | daemon, call, decision | Resume a paused turn after approval. |
 | `daemon/message.replied` | daemon -> aether | daemon, thread, text | Persist assistant output and fan out to channels. |
 | `daemon/approval.requested` | daemon -> aether | daemon, thread, calls | Create approval rows for pending calls. |
@@ -81,9 +81,11 @@ Daemons talk to aether over REST and never open the database. That boundary lets
 ## Scheduling
 
 - Recurring schedules apply to anchored daemons.
-- Schedules are rows in aether (`cron`, `tz`, `next_run_at`, policy).
+- Schedules are rows in aether (`cron`, `tz`, `next_run_at`, policy, `prompt`). A fired turn delivers the prompt as its request.
 - Inngest functions stay static: `scheduler.tick` (cron) finds due rows and emits `aether/schedule.fired`.
 - Daemons may create, edit, and delete their own schedules through REST without approval; aether enforces ownership and the anchored-only rule. These changes update rows, not function definitions.
+- The SDK exposes `schedule_list`, `schedule_put`, and `schedule_delete`, bound to the turn's daemon and thread. A scheduled turn runs under the same allowlist as any other.
+- Turn instructions state the current date, time, and timezone and the thread's directory and host.
 - Offline policy is explicit per daemon: queue, skip with marker, or TTL then skipped marker.
 - Cloud cron continues while daemons are offline. Check schedule deadlines before execution; do not blindly replay stale work.
 - Ticks may burst after reconnect. Each fire checks its own deadline; stale ones leave a marker.
