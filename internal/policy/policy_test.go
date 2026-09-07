@@ -143,3 +143,26 @@ func TestMatchShellRules(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchPathRules(t *testing.T) {
+	root := t.TempDir()
+	rules := []Rule{{Tool: "read_file", Path: "**"}, {Tool: "edit_file", Path: "src/**/*.ts"}, {Tool: "write_file"}, {Tool: "shell", Argv: []string{"ls", "..."}}}
+	cases := []struct {
+		name, tool, args string
+		want             bool
+	}{
+		{"read anything", "read_file", `{"path":"notes/today.md"}`, true},
+		{"read traversal", "read_file", `{"path":"../secret"}`, false},
+		{"edit glob hit", "edit_file", `{"path":"src/a/b/c.ts"}`, true},
+		{"edit glob miss", "edit_file", `{"path":"src/a/b/c.go"}`, false},
+		{"write rule without path", "write_file", `{"path":"x"}`, false},
+		{"read dotfile", "read_file", `{"path":".env"}`, true},
+		{"shell rule ignores files", "shell", `{"path":"x"}`, false},
+	}
+	for _, tc := range cases {
+		_, got := Match(rules, Request{Tool: tc.tool, Args: []byte(tc.args), Cwd: root})
+		if got != tc.want {
+			t.Errorf("%s: match = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -32,22 +32,33 @@ func (e *ErrOutsideRoot) Error() string {
 }
 
 func ResolveWithin(root, p string) (string, error) {
+	full, _, err := resolveWithin(root, p)
+	return full, err
+}
+
+func RelativeWithin(root, p string) (string, error) {
+	_, rel, err := resolveWithin(root, p)
+	return filepath.ToSlash(rel), err
+}
+
+func resolveWithin(root, p string) (string, string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("policy: resolve root: %w", err)
+		return "", "", fmt.Errorf("policy: resolve root: %w", err)
 	}
 	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
-		return "", fmt.Errorf("policy: resolve root: %w", err)
+		return "", "", fmt.Errorf("policy: resolve root: %w", err)
 	}
 	full, err := resolvePath(absoluteUnder(absRoot, p))
 	if err != nil {
-		return "", fmt.Errorf("policy: resolve %q: %w", p, err)
+		return "", "", fmt.Errorf("policy: resolve %q: %w", p, err)
 	}
-	if !contains(resolvedRoot, full) {
-		return "", &ErrOutsideRoot{Root: resolvedRoot, Path: full}
+	rel, ok := relWithin(resolvedRoot, full)
+	if !ok {
+		return "", "", &ErrOutsideRoot{Root: resolvedRoot, Path: full}
 	}
-	return full, nil
+	return full, rel, nil
 }
 
 func absoluteUnder(root, p string) string {
@@ -57,12 +68,12 @@ func absoluteUnder(root, p string) string {
 	return filepath.Join(root, p)
 }
 
-func contains(root, p string) bool {
+func relWithin(root, p string) (string, bool) {
 	rel, err := filepath.Rel(root, p)
 	if err != nil {
-		return false
+		return "", false
 	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+	return rel, rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func resolvePath(p string) (string, error) {

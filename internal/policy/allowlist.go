@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -11,6 +12,7 @@ type Rule struct {
 	Daemon string   `json:"daemon"`
 	Tool   string   `json:"tool"`
 	Argv   []string `json:"argv"`
+	Path   string   `json:"path"`
 }
 
 type Request struct {
@@ -23,6 +25,10 @@ type Request struct {
 type shellArgs struct {
 	Argv []string `json:"argv"`
 	Cwd  string   `json:"cwd"`
+}
+
+type pathArgs struct {
+	Path string `json:"path"`
 }
 
 func LoadRules(path string) ([]Rule, error) {
@@ -52,17 +58,46 @@ func Match(rules []Rule, req Request) (Rule, bool) {
 }
 
 func (r Rule) String() string {
-	return strings.TrimSpace(fmt.Sprintf("%s %s %s", r.Daemon, r.Tool, strings.Join(r.Argv, " ")))
+	return strings.Join(strings.Fields(fmt.Sprintf("%s %s %s %s", r.Daemon, r.Tool, strings.Join(r.Argv, " "), r.Path)), " ")
 }
 
 func (r Rule) matches(req Request) bool {
 	if r.Tool != req.Tool || (r.Daemon != "" && r.Daemon != req.Daemon) {
 		return false
 	}
-	if req.Tool == "shell" {
+	switch req.Tool {
+	case "shell":
 		return len(r.Argv) > 0 && matchShell(r.Argv, req)
+	case "read_file", "edit_file", "write_file":
+		return r.Path != "" && matchPath(r.Path, req)
 	}
-	return r.Argv == nil
+	return false
+}
+
+func matchPath(pattern string, req Request) bool {
+	var args pathArgs
+	if err := json.Unmarshal(req.Args, &args); err != nil || args.Path == "" {
+		return false
+	}
+	rel, err := RelativeWithin(req.Cwd, args.Path)
+	if err != nil {
+		return false
+	}
+	return globMatch(strings.Split(pattern, "/"), strings.Split(rel, "/"))
+}
+
+func globMatch(pattern, segments []string) bool {
+	if len(pattern) == 0 {
+		return len(segments) == 0
+	}
+	if pattern[0] == "**" {
+		return globMatch(pattern[1:], segments) || (len(segments) > 0 && globMatch(pattern, segments[1:]))
+	}
+	if len(segments) == 0 {
+		return false
+	}
+	ok, err := path.Match(pattern[0], segments[0])
+	return err == nil && ok && globMatch(pattern[1:], segments[1:])
 }
 
 func matchShell(patterns []string, req Request) bool {
