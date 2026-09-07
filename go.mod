@@ -4,6 +4,7 @@ go 1.25.9
 
 require (
 	github.com/inngest/inngestgo v0.16.1
+	github.com/robfig/cron/v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 )
 
@@ -24,7 +25,6 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
