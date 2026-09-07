@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import type { ModelRequest } from "@openai/agents";
+import { NoopTrace, Usage, withGenerationSpan, withTrace, type ModelRequest } from "@openai/agents";
 import type { Daemon } from "./client";
-import { modelFor, modelSpecFor, parseModelSpec } from "./model";
+import { modelFor, modelSpecFor, parseModelSpec, steppedModel, type Responder } from "./model";
 import type { StepLike } from "./turn";
 
 const step: StepLike = { run: (_id, fn) => fn() };
@@ -45,4 +45,18 @@ test("scripted model asks for two shell calls, then reports their output", async
     "done: alpha, beta",
   );
   expect(() => model.getStreamedResponse(request("hi"))).toThrow("never used");
+});
+
+const queued: (() => void)[] = [];
+const drain = setInterval(() => queued.splice(0).forEach((fn) => fn()), 1);
+const detached: StepLike = { run: (_id, fn) => new Promise((resolve, reject) => queued.push(() => fn().then(resolve, reject))) };
+
+test("steppedModel keeps a trace context when the step runs detached", async () => {
+  const inner: Responder = {
+    getResponse: () => withGenerationSpan(async () => ({ output: [], usage: new Usage() })),
+  };
+  const model = steppedModel(detached, async () => inner);
+  const res = await withTrace(new NoopTrace(), () => model.getResponse(request("hi")));
+  clearInterval(drain);
+  expect(res.output).toEqual([]);
 });

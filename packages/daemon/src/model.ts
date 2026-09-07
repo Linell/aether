@@ -1,6 +1,8 @@
 import {
+  NoopTrace,
   OpenAIProvider,
   Usage,
+  withTrace,
   type AgentInputItem,
   type AgentOutputItem,
   type Model,
@@ -39,14 +41,14 @@ export function parseModelSpec(raw: string | undefined = DefaultModel): ModelSpe
 
 export function modelFor(spec: ModelSpec, step: StepLike): Model {
   if (spec.provider === "scripted") return scriptedModel(step);
-  return stepped(step, providerModel(spec));
+  return steppedModel(step, providerModel(spec));
 }
 
-interface Responder {
+export interface Responder {
   getResponse(request: ModelRequest): Promise<Responded>;
 }
 
-interface Responded {
+export interface Responded {
   output: AgentOutputItem[];
   responseId?: string | undefined;
   usage: Usage;
@@ -67,14 +69,19 @@ interface Memoized {
   usage: { input_tokens: number; output_tokens: number; total_tokens: number };
 }
 
-function stepped(step: StepLike, inner: () => Promise<Responder>): Model {
+export function steppedModel(step: StepLike, inner: () => Promise<Responder>): Model {
   return {
     async getResponse(request) {
-      const done = await step.run("model", async () => memoize(await (await inner()).getResponse(request)));
+      const done = await step.run("model", () => traced(inner, request));
       return restore(done);
     },
     getStreamedResponse: neverStreams,
   };
+}
+
+async function traced(inner: () => Promise<Responder>, request: ModelRequest): Promise<Memoized> {
+  const model = await inner();
+  return withTrace(new NoopTrace(), async () => memoize(await model.getResponse(request)));
 }
 
 function memoize(res: Responded): Memoized {
