@@ -65,8 +65,12 @@ export function isStale(deadlineAt: string, now: Date): boolean {
 
 export function turnInputFor(event: TurnEvent): TurnInput {
   const thread = event.data.thread;
-  if ("schedule" in event.data) return { thread, text: `Run schedule ${event.data.schedule}` };
+  if ("schedule" in event.data) return { thread, text: scheduleText(event.data) };
   return { thread, text: "text" in event.data ? event.data.text : "" };
+}
+
+function scheduleText(data: ScheduleFiredPayload): string {
+  return `Schedule ${data.schedule} fired (due ${data.due_at}): ${data.prompt}`;
 }
 
 export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnResult> {
@@ -86,8 +90,11 @@ async function load(ctx: TurnContext, thread: string): Promise<Loaded> {
 }
 
 function stale(ctx: TurnContext, data: ScheduleFiredPayload): Promise<boolean> {
-  const now = ctx.now ?? (() => new Date());
-  return ctx.step.run("stale", async () => isStale(data.deadline_at, now()));
+  return ctx.step.run("stale", async () => isStale(data.deadline_at, nowOf(ctx)));
+}
+
+function nowOf(ctx: TurnContext): Date {
+  return ctx.now === undefined ? new Date() : ctx.now();
 }
 
 async function resume(ctx: TurnContext, data: ApprovalAnsweredPayload): Promise<TurnResult> {
@@ -117,7 +124,14 @@ function agentFor(ctx: TurnContext, docs: Docs): Agent {
     host: docs.thread.host,
   };
   const tools = ctx.tools.map((make) => make(deps));
-  const instructions = instructionsFor({ daemon: ctx.daemon, soul: docs.soul, memory: docs.memory, tools: tools.map((t) => t.name) });
+  const instructions = instructionsFor({
+    daemon: ctx.daemon,
+    soul: docs.soul,
+    memory: docs.memory,
+    tools: tools.map((t) => t.name),
+    now: nowOf(ctx),
+    thread: docs.thread,
+  });
   return new Agent({ name: ctx.daemon, instructions, tools });
 }
 

@@ -4,6 +4,7 @@ import { connect, type WorkerConnection } from "inngest/connect";
 import { createClient, type AetherClient, type Daemon } from "./client";
 import { Events, TurnConcurrency } from "./contract";
 import { modelFor, modelSpecFor, type Model } from "./model";
+import { scheduleDelete, scheduleList, schedulePut } from "./schedules";
 import { shell, type ToolFactory } from "./tools";
 import { mark, runTurn, type StepLike, type TurnContext, type TurnEvent } from "./turn";
 
@@ -26,7 +27,7 @@ const Ids = { daemon: z.string(), thread: z.string() };
 
 const TurnPayload = z.union([
   z.object({ ...Ids, message: z.string(), text: z.string() }),
-  z.object({ ...Ids, schedule: z.string(), due_at: z.string(), deadline_at: z.string() }),
+  z.object({ ...Ids, schedule: z.string(), due_at: z.string(), deadline_at: z.string(), prompt: z.string() }),
   z.object({ ...Ids, call: z.string(), approval: z.string(), decision: z.enum(["approved", "denied"]) }),
 ]);
 
@@ -36,8 +37,13 @@ export function turnEventOf(event: { name: string; data?: unknown }): TurnEvent 
   return { name: event.name, data: parsed.data };
 }
 
+export function threadOf(event: { data?: unknown }): string {
+  const parsed = z.object({ thread: z.string() }).safeParse(event.data);
+  return parsed.success ? parsed.data.thread : "";
+}
+
 export function defineDaemon(opts: DefineDaemonOptions): DefinedDaemon {
-  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? [shell], _brand: "aether-daemon" };
+  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? [shell, scheduleList, schedulePut, scheduleDelete], _brand: "aether-daemon" };
   return opts.model === undefined ? base : { ...base, model: opts.model };
 }
 
@@ -81,8 +87,7 @@ export function buildFunctions(inngest: Inngest, daemon: DefinedDaemon, client: 
     {
       ...turnConfig(daemon.name),
       onFailure: async ({ event, runId }) => {
-        const original = turnEventOf(event.data.event);
-        await mark({ daemon: daemon.name, runId, client }, "turn.failed", original.data.thread, event.data.run_id, event.data.error);
+        await mark({ daemon: daemon.name, runId, client }, "turn.failed", threadOf(event.data.event), event.data.run_id, event.data.error);
       },
     },
     async ({ event, step, runId }) => {

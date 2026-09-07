@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Inngest, NonRetriableError } from "inngest";
 import { Events } from "./contract";
 import type { ModelRequest } from "@openai/agents";
-import { appId, buildFunctions, defineDaemon, maxTurnsFrom, modelResolver, turnConfig, turnEventOf } from "./runtime";
+import { appId, buildFunctions, defineDaemon, maxTurnsFrom, modelResolver, threadOf, turnConfig, turnEventOf } from "./runtime";
 import { createClient, type Daemon } from "./client";
 import { modelFor } from "./model";
 import type { StepLike } from "./turn";
@@ -49,4 +49,6 @@ test("turnEventOf rejects payloads outside the contract", () => {
   const data = { daemon: "foo", thread: "t1", message: "m1", text: "hi" };
   expect(turnEventOf({ name: Events.MessageSent, data })).toEqual({ name: Events.MessageSent, data });
   expect(() => turnEventOf({ name: Events.MessageSent, data: { daemon: "foo" } })).toThrow(NonRetriableError);
+  expect(threadOf({ data: { daemon: "foo", thread: "t1" } })).toBe("t1");
+  expect(threadOf({ data: { daemon: "foo" } })).toBe("");
 });

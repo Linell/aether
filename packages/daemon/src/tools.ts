@@ -32,7 +32,7 @@ export const shell: ToolFactory = (deps) =>
       "Run a program by argv (no shell expansion) inside the thread directory, optionally in a subdirectory `cwd`. Output is truncated at 4000 chars; a non-zero exit is reported as `exit N`.",
     parameters: ShellArgs,
     needsApproval: (_ctx, args, callId) => needsApproval(deps, args, required(callId)),
-    execute: (args, _ctx, details) => execute(deps, args, required(details?.toolCall?.callId)),
+    execute: (args, _ctx, details) => execute(deps, args, callIdFrom(details)),
   });
 
 function needsApproval(deps: ToolDeps, args: ShellArgs, callId: string): Promise<boolean> {
@@ -74,6 +74,10 @@ async function runShell(root: string, args: ShellArgs): Promise<string> {
 function required(callId: string | undefined): string {
   if (!callId) throw new Error("tool call without callId");
   return callId;
+}
+
+export function callIdFrom(details: { toolCall?: { callId?: string } } | undefined): string {
+  return required(details?.toolCall?.callId);
 }
 
 function message(err: unknown): string {

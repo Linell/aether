@@ -6,7 +6,7 @@ import { AetherHttpError, type AetherClient, type Approval, type Daemon, type Ma
 import { Events, type ToolCall } from "./contract";
 import { modelFor } from "./model";
 import { shell } from "./tools";
-import { isStale, runTurn, type StepLike, type TurnContext } from "./turn";
+import { isStale, runTurn, turnInputFor, type StepLike, type TurnContext } from "./turn";
 
 interface Seen {
   replies: { thread: string; text: string; id?: string }[];
@@ -134,12 +134,17 @@ describe("runTurn", () => {
     const { client, seen } = fakeClient();
     const result = await runTurn(ctx(client), {
       name: Events.ScheduleFired,
-      data: { daemon: "foo", thread: "t1", schedule: "s1", due_at: "2026-09-06T06:00:00Z", deadline_at: "2026-09-06T06:05:00Z" },
+      data: { daemon: "foo", thread: "t1", schedule: "s1", due_at: "2026-09-06T06:00:00Z", deadline_at: "2026-09-06T06:05:00Z", prompt: "Review" },
     });
     expect(result).toEqual({ status: "skipped", marker: "run-1:schedule.stale" });
     expect(seen.replies).toEqual([]);
     expect(seen.markers.map((m) => [m.kind, m.ref])).toEqual([["schedule.stale", "s1"]]);
   });
+});
+
+test("a fired schedule turns into its prompt", () => {
+  const data = { daemon: "foo", thread: "t1", schedule: "s1", due_at: "2026-09-06T06:00:00Z", deadline_at: "2026-09-06T06:05:00Z", prompt: "Review the day" };
+  expect(turnInputFor({ name: Events.ScheduleFired, data })).toEqual({ thread: "t1", text: "Schedule s1 fired (due 2026-09-06T06:00:00Z): Review the day" });
 });
 
 test("isStale compares deadline to now", () => {

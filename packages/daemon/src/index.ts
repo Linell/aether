@@ -4,6 +4,7 @@ export * from "./client";
 export * from "./instructions";
 export * from "./model";
 export * from "./policy";
+export * from "./schedules";
 export * from "./tools";
 export * from "./turn";
 export * from "./runtime";
