@@ -7,7 +7,7 @@ const thread = { id: "t1", daemon: "sage", host: "laptop", directory: "/srv/sage
 test("absent soul and memory leave no header; present ones are clipped", () => {
   const bare = instructionsFor({ daemon: "sage", soul: "", memory: "  ", tools: ["shell"], now, thread });
   expect(bare).toContain("You are sage");
-  expect(bare).toContain("shell");
+  expect(bare).toContain("tool calls");
   expect(bare).toContain(`Now: ${localTime(now)}. Thread directory: /srv/sage on host laptop.`);
   expect(bare).not.toContain("---");
 
