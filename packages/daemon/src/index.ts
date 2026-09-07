@@ -1,4 +1,5 @@
 export * from "./contract";
+export * from "./files";
 export * from "./manifest";
 export * from "./client";
 export * from "./instructions";

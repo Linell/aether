@@ -31,29 +31,29 @@ export const shell: ToolFactory = (deps) =>
     description:
       "Run a program by argv (no shell expansion) inside the thread directory, optionally in a subdirectory `cwd`. Output is truncated at 4000 chars; a non-zero exit is reported as `exit N`.",
     parameters: ShellArgs,
-    needsApproval: (_ctx, args, callId) => needsApproval(deps, args, required(callId)),
-    execute: (args, _ctx, details) => execute(deps, args, callIdFrom(details)),
+    needsApproval: (_ctx, args, callId) => needsApproval(deps, "shell", args, required(callId)),
+    execute: (args, _ctx, details) => execute(deps, callIdFrom(details), () => runShell(deps.cwd, args)),
   });
 
-function needsApproval(deps: ToolDeps, args: ShellArgs, callId: string): Promise<boolean> {
+export function needsApproval(deps: ToolDeps, tool: string, args: Record<string, unknown>, callId: string): Promise<boolean> {
   return deps.step.run(`match:${callId}`, async () => {
-    const match = await deps.client.matchCall(deps.daemon, deps.thread, callFor(deps, callId, args));
+    const match = await deps.client.matchCall(deps.daemon, deps.thread, callFor(deps, callId, tool, args));
     return !match.allowed;
   });
 }
 
-function callFor(deps: ToolDeps, id: string, args: ShellArgs): ToolCall {
-  return { id, tool: "shell", args, context: { cwd: deps.cwd, host: deps.host } };
+function callFor(deps: ToolDeps, id: string, tool: string, args: Record<string, unknown>): ToolCall {
+  return { id, tool, args, context: { cwd: deps.cwd, host: deps.host } };
 }
 
-function execute(deps: ToolDeps, args: ShellArgs, callId: string): Promise<string> {
-  return deps.step.run(`exec:${callId}`, () => runClaimed(deps, callId, args));
+export function execute(deps: ToolDeps, callId: string, fn: () => Promise<string>): Promise<string> {
+  return deps.step.run(`exec:${callId}`, () => runClaimed(deps, callId, fn));
 }
 
-async function runClaimed(deps: ToolDeps, callId: string, args: ShellArgs): Promise<string> {
+async function runClaimed(deps: ToolDeps, callId: string, fn: () => Promise<string>): Promise<string> {
   if (!(await deps.client.claimOperation(callId, "tool.call"))) return "already executed; output unavailable";
   try {
-    return await runShell(deps.cwd, args);
+    return await fn();
   } catch (err) {
     return `error: ${message(err)}`;
   }
@@ -71,7 +71,7 @@ async function runShell(root: string, args: ShellArgs): Promise<string> {
   return code === 0 ? output : `exit ${code}\n${output}`;
 }
 
-function required(callId: string | undefined): string {
+export function required(callId: string | undefined): string {
   if (!callId) throw new Error("tool call without callId");
   return callId;
 }

@@ -55,3 +55,7 @@ function exists(p: string): boolean {
     return false;
   }
 }
+
+export function relativeTo(root: string, full: string): string {
+  return relative(realpathSync(resolve(root)), full);
+}

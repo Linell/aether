@@ -5,6 +5,7 @@ import { createClient, type AetherClient, type Daemon } from "./client";
 import { Events, TurnConcurrency } from "./contract";
 import { modelFor, modelSpecFor, type Model } from "./model";
 import { scheduleDelete, scheduleList, schedulePut } from "./schedules";
+import { editFile, readFile, writeFile } from "./files";
 import { shell, type ToolFactory } from "./tools";
 import { mark, runTurn, type StepLike, type TurnContext, type TurnEvent } from "./turn";
 
@@ -43,7 +44,7 @@ export function threadOf(event: { data?: unknown }): string {
 }
 
 export function defineDaemon(opts: DefineDaemonOptions): DefinedDaemon {
-  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? [shell, scheduleList, schedulePut, scheduleDelete], _brand: "aether-daemon" };
+  const base: DefinedDaemon = { name: opts.name, tools: opts.tools ?? [shell, readFile, editFile, writeFile, scheduleList, schedulePut, scheduleDelete], _brand: "aether-daemon" };
   return opts.model === undefined ? base : { ...base, model: opts.model };
 }
 

@@ -55,5 +55,5 @@ export function localTime(now: Date, tz = hostTimeZone()): string {
 
 function toolsLine(tools: string[]): string {
   if (tools.length === 0) return "You have no tools this turn; answer from what you know.";
-  return `Your tools: ${tools.join(", ")}. Function calls are the only way to act; there is no read tool, so read with shell (cat, ls, rg).`;
+  return `Your tools: ${tools.join(", ")}. Function calls are the only way to act.`;
 }
