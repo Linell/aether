@@ -9,6 +9,7 @@ import {
   type ScheduleFiredPayload,
   type ToolCall,
 } from "./contract";
+import { historyItems, sinceLastUser } from "./history";
 import { DocLimit, instructionsFor } from "./instructions";
 import type { Model } from "./model";
 import type { ToolDeps, ToolFactory } from "./tools";
@@ -36,6 +37,7 @@ export interface TurnContext {
 export interface TurnInput {
   thread: string;
   text: string;
+  before?: string;
 }
 
 export type TurnResult =
@@ -52,6 +54,7 @@ interface Docs {
   memoryVersion: number;
   thread: Thread;
   daemon: Daemon;
+  history: AgentInputItem[];
 }
 
 interface Loaded {
@@ -66,7 +69,8 @@ export function isStale(deadlineAt: string, now: Date): boolean {
 export function turnInputFor(event: TurnEvent): TurnInput {
   const thread = event.data.thread;
   if ("schedule" in event.data) return { thread, text: scheduleText(event.data) };
-  return { thread, text: "text" in event.data ? event.data.text : "" };
+  if ("message" in event.data) return { thread, text: event.data.text, before: event.data.message };
+  return { thread, text: "" };
 }
 
 function scheduleText(data: ScheduleFiredPayload): string {
@@ -79,13 +83,14 @@ export async function runTurn(ctx: TurnContext, event: TurnEvent): Promise<TurnR
   }
   if (event.name === Events.ApprovalAnswered && "approval" in event.data) return resume(ctx, event.data);
   const input = turnInputFor(event);
-  const loaded = await load(ctx, input.thread);
+  const loaded = await load(ctx, input.thread, input.before);
   const agent = agentFor(ctx, loaded.docs);
-  return conclude(ctx, loaded, await runAgent(ctx, loaded.model, agent, input.text));
+  const items: AgentInputItem[] = [...loaded.docs.history, { role: "user", content: input.text }];
+  return conclude(ctx, loaded, await runAgent(ctx, loaded.model, agent, items));
 }
 
-async function load(ctx: TurnContext, thread: string): Promise<Loaded> {
-  const docs = await ctx.step.run("load", () => loadDocs(ctx, thread));
+async function load(ctx: TurnContext, thread: string, before?: string): Promise<Loaded> {
+  const docs = await ctx.step.run("load", () => loadDocs(ctx, thread, before));
   return { docs, model: ctx.resolveModel(docs.daemon) };
 }
 
@@ -151,7 +156,7 @@ async function conclude(ctx: TurnContext, { docs, model }: Loaded, result: Run):
   if (result.interruptions.length > 0) return pause(ctx, docs.thread, result);
   const reply = String(result.finalOutput ?? "");
   await ctx.step.run("reply", () => ctx.client.reply(docs.thread.id, reply, `${ctx.runId}:reply`));
-  await remember(ctx, { docs, model }, result.history);
+  await remember(ctx, { docs, model }, sinceLastUser(result.history));
   return { status: "replied", reply };
 }
 
@@ -206,14 +211,16 @@ export async function skipStale(ctx: TurnContext, data: ScheduleFiredPayload): P
   return { status: "skipped", marker };
 }
 
-async function loadDocs(ctx: TurnContext, thread: string): Promise<Docs> {
-  const [soul, memory, t, daemon] = await Promise.all([
+async function loadDocs(ctx: TurnContext, thread: string, before?: string): Promise<Docs> {
+  const [soul, memory, t, daemon, messages] = await Promise.all([
     ctx.client.getSoul(ctx.daemon).catch(emptyOn404),
     ctx.client.getMemory(ctx.daemon),
     ctx.client.getThread(thread),
     ctx.client.getDaemon(ctx.daemon),
+    ctx.client.listMessages(thread, before === undefined ? {} : { before }),
   ]);
-  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version, thread: t, daemon };
+  const history = historyItems(messages, DocLimit);
+  return { soul: soul.content, memory: memory.content, memoryVersion: memory.version, thread: t, daemon, history };
 }
 
 function emptyOn404(err: unknown) {

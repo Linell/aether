@@ -13,6 +13,7 @@ import {
 import { aisdk } from "@openai/agents-extensions/ai-sdk";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { Daemon } from "./client";
+import { sinceLastUser } from "./history";
 import type { StepLike } from "./turn";
 
 export type { Model } from "@openai/agents";
@@ -142,15 +143,7 @@ function hasToolResults(request: ModelRequest): boolean {
 
 function thisTurn(request: ModelRequest): AgentInputItem[] {
   if (typeof request.input === "string") return [];
-  let start = 0;
-  request.input.forEach((item, i) => {
-    if (isUser(item)) start = i + 1;
-  });
-  return request.input.slice(start);
-}
-
-function isUser(item: AgentInputItem): boolean {
-  return "role" in item && item.role === "user";
+  return sinceLastUser(request.input).slice(1);
 }
 
 function isResult(item: AgentInputItem): item is protocol.FunctionCallResultItem {

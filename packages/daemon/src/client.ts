@@ -38,6 +38,18 @@ export interface Daemon {
   model?: string;
 }
 
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  created_at: string;
+}
+
+export interface HistoryQuery {
+  before?: string;
+  limit?: number;
+}
+
 export interface Thread {
   id: string;
   daemon: string;
@@ -77,6 +89,7 @@ export interface AetherClient {
   putMarker(daemon: string, marker: Marker): Promise<void>;
   requestApproval(thread: string, calls: ToolCall[], state: string): Promise<{ approval: string; approvals: string[] }>;
   getThread(id: string): Promise<Thread>;
+  listMessages(thread: string, query?: HistoryQuery): Promise<Message[]>;
   getDaemon(name: string): Promise<Daemon>;
   getApproval(id: string): Promise<Approval>;
   matchCall(daemon: string, thread: string, call: ToolCall): Promise<MatchResult>;
@@ -119,6 +132,10 @@ export function createClient(options: CreateClientOptions): AetherClient {
     },
     requestApproval: (thread, calls, state) => request("POST", `/threads/${thread}/approvals`, { calls, state }),
     getThread: (id) => request("GET", `/threads/${id}`),
+    async listMessages(thread, query = {}) {
+      const res = await request<{ messages: Message[] }>("GET", `/threads/${thread}/messages${historyParams(query)}`);
+      return res.messages;
+    },
     getDaemon: (name) => request("GET", `/daemons/${name}`),
     getApproval: (id) => request("GET", `/approvals/${id}`),
     matchCall: (daemon, thread, call) => request("POST", `/daemons/${daemon}/allowlist/match`, { thread, call }),
@@ -136,4 +153,12 @@ export function createClient(options: CreateClientOptions): AetherClient {
       await request("DELETE", `/daemons/${daemon}/schedules/${id}`);
     },
   };
+}
+
+function historyParams({ before, limit }: HistoryQuery): string {
+  const params = new URLSearchParams();
+  if (before !== undefined) params.set("before", before);
+  if (limit !== undefined) params.set("limit", String(limit));
+  const text = params.toString();
+  return text.length === 0 ? "" : `?${text}`;
 }

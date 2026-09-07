@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AetherHttpError, type AetherClient, type Approval, type Daemon, type Marker } from "./client";
+import { AetherHttpError, type AetherClient, type Approval, type Daemon, type HistoryQuery, type Marker, type Message } from "./client";
 import { Events, type ToolCall } from "./contract";
 import { modelFor } from "./model";
 import { shell } from "./tools";
@@ -14,13 +14,14 @@ interface Seen {
   markers: Marker[];
   approvals: { calls: ToolCall[]; state: string }[];
   claims: string[];
+  history: HistoryQuery[];
 }
 
 const dir = mkdtempSync(join(tmpdir(), "aether-turn-"));
 const now = new Date("2026-09-06T07:00:00Z");
 
-function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
-  const seen: Seen = { replies: [], memory: [], markers: [], approvals: [], claims: [] };
+function fakeClient(opts: { allowed?: boolean; approval?: Approval; history?: Message[] } = {}) {
+  const seen: Seen = { replies: [], memory: [], markers: [], approvals: [], claims: [], history: [] };
   const unused = () => Promise.reject(new Error("unused"));
   const client: AetherClient = {
     async reply(thread, text, id) {
@@ -34,6 +35,10 @@ function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
       return { approval: "a1", approvals: calls.map((c) => `a:${c.id}`) };
     },
     getThread: async (id) => ({ id, daemon: "foo", host: "h1", directory: dir }),
+    async listMessages(_thread, query) {
+      seen.history.push(query ?? {});
+      return opts.history ?? [];
+    },
     getDaemon: async (name) => ({ name, host: "h1", class: "worker", offline_policy: "skip", status: "online", model: "scripted" }),
     async getApproval() {
       if (!opts.approval) throw new AetherHttpError(404, "not found");
@@ -140,6 +145,12 @@ describe("runTurn", () => {
     expect(seen.replies).toEqual([]);
     expect(seen.markers.map((m) => [m.kind, m.ref])).toEqual([["schedule.stale", "s1"]]);
   });
+});
+
+test("a message turn loads history before the triggering message", async () => {
+  const { client, seen } = fakeClient({ history: [{ id: "m0", role: "user", text: "earlier", created_at: "2026-09-06T06:00:00Z" }] });
+  await runTurn(ctx(client), message);
+  expect(seen.history).toEqual([{ before: "m1" }]);
 });
 
 test("a fired schedule turns into its prompt", () => {
