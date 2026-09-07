@@ -12,6 +12,8 @@ import (
 
 type Runner func(ctx context.Context, dir string, args ...string) error
 
+const readyFile = ".aether-ready"
+
 func Scaffold(ctx context.Context, dir, name, sdk string, run Runner) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("host: scaffold %s: %w", name, err)
@@ -24,10 +26,17 @@ func Scaffold(ctx context.Context, dir, name, sdk string, run Runner) error {
 	if err := run(ctx, dir, "bun", "install"); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		return nil
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		if err := run(ctx, dir, "git", "init", "-q"); err != nil {
+			return err
+		}
 	}
-	return run(ctx, dir, "git", "init", "-q")
+	return os.WriteFile(filepath.Join(dir, readyFile), []byte(name+"\n"), 0o644)
+}
+
+func Ready(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, readyFile))
+	return err == nil
 }
 
 func scaffoldFiles(name, sdk string) map[string]string {
@@ -35,7 +44,7 @@ func scaffoldFiles(name, sdk string) map[string]string {
 		"aether.json":  jsonDoc(Manifest{Name: name, Run: "bun run start"}),
 		"package.json": jsonDoc(packageJSON(name, sdk)),
 		"index.ts":     indexTS(name),
-		".gitignore":   "node_modules\n",
+		".gitignore":   "node_modules\n" + readyFile + "\n",
 	}
 }
 

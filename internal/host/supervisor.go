@@ -84,6 +84,9 @@ func (s *Supervisor) reconcileOne(ctx context.Context, name string) {
 		log.Printf("host: %s: read manifest: %v", name, err)
 		return
 	}
+	if !Ready(dir) {
+		return
+	}
 	s.spawn(ctx, name, dir, m)
 }
 

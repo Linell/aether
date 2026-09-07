@@ -33,4 +33,23 @@ func TestScaffoldIsIdempotent(t *testing.T) {
 	if m, err := ReadManifest(dir); err != nil || m.Name != "foo" {
 		t.Errorf("manifest = %+v, %v", m, err)
 	}
+	if !Ready(dir) {
+		t.Error("scaffold did not mark the daemon ready")
+	}
+}
+
+func TestScaffoldMarksReadyLast(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "foo")
+	run := func(_ context.Context, _ string, args ...string) error {
+		if Ready(dir) {
+			t.Errorf("ready before %v finished", args)
+		}
+		return nil
+	}
+	if err := Scaffold(context.Background(), dir, "foo", "file:../sdk", run); err != nil {
+		t.Fatalf("Scaffold: %v", err)
+	}
+	if !Ready(dir) {
+		t.Error("not ready after scaffold")
+	}
 }

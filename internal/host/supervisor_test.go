@@ -33,6 +33,26 @@ func writeManifest(t *testing.T, dir string, m Manifest) {
 	if err := os.WriteFile(filepath.Join(dir, "aether.json"), body, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, readyFile), []byte(m.Name+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReconcileWaitsForScaffold(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "foo")
+	writeManifest(t, dir, Manifest{Name: "foo", Run: "sleep 30"})
+	if err := os.Remove(filepath.Join(dir, readyFile)); err != nil {
+		t.Fatal(err)
+	}
+	sup := New(root, &fakeRegistry{daemons: []Daemon{{Name: "foo"}}}, BaseEnv())
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if sup.running["foo"] != nil {
+		t.Error("spawned a daemon whose scaffold had not finished")
+	}
+	sup.Stop()
 }
 
 func TestReconcileSpawnsExactlyOnce(t *testing.T) {
