@@ -26,7 +26,7 @@ export interface TurnContext {
   daemon: string;
   runId: string;
   client: AetherClient;
-  resolveModel: (daemon: Daemon) => Model;
+  resolveModel: (daemon: Daemon, scope?: string) => Model;
   tools: ToolFactory[];
   step: StepLike;
   maxTurns: number;
@@ -169,9 +169,9 @@ function parseArgs(text: string | undefined): Record<string, unknown> {
   return Args.parse(JSON.parse(text ?? "{}"));
 }
 
-async function remember(ctx: TurnContext, { docs, model }: Loaded, history: AgentInputItem[]): Promise<void> {
+async function remember(ctx: TurnContext, { docs }: Loaded, history: AgentInputItem[]): Promise<void> {
   const agent = new Agent({ name: `${ctx.daemon}-memory`, instructions: memoryInstructions(ctx.daemon, docs.memory) });
-  const result = await runAgent(ctx, model, agent, history);
+  const result = await runAgent(ctx, ctx.resolveModel(docs.daemon, "memory"), agent, history);
   const next = String(result.finalOutput ?? "").trim();
   if (next.length === 0 || next === docs.memory.trim()) return;
   await ctx.step.run("put-memory", () => writeMemory(ctx, docs.thread.id, next, docs.memoryVersion));

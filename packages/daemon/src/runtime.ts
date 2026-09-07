@@ -67,8 +67,8 @@ export function turnConfig(name: string) {
   };
 }
 
-export function modelResolver(daemon: DefinedDaemon, step: StepLike, env: Record<string, string | undefined>): (doc: Daemon) => Model {
-  return (doc) => daemon.model ?? modelFor(modelSpecFor(doc, env), step);
+export function modelResolver(daemon: DefinedDaemon, step: StepLike, env: Record<string, string | undefined>): (doc: Daemon, scope?: string) => Model {
+  return (doc, scope) => daemon.model ?? modelFor(modelSpecFor(doc, env), step, scope);
 }
 
 function contextFor(daemon: DefinedDaemon, client: AetherClient, runId: string, step: StepLike, env: Record<string, string | undefined>): TurnContext {

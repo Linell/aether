@@ -39,9 +39,14 @@ export function parseModelSpec(raw: string | undefined = DefaultModel): ModelSpe
   throw new Error(`model spec: unrecognized ${JSON.stringify(raw)}`);
 }
 
-export function modelFor(spec: ModelSpec, step: StepLike): Model {
-  if (spec.provider === "scripted") return scriptedModel(step);
-  return steppedModel(step, providerModel(spec));
+export function modelFor(spec: ModelSpec, step: StepLike, scope = "model"): Model {
+  if (spec.provider === "scripted") return scriptedModel(step, scope);
+  return steppedModel(step, providerModel(spec), scope);
+}
+
+function stepIds(scope: string): () => string {
+  let n = 0;
+  return () => `${scope}-${++n}`;
 }
 
 export interface Responder {
@@ -69,10 +74,11 @@ interface Memoized {
   usage: { input_tokens: number; output_tokens: number; total_tokens: number };
 }
 
-export function steppedModel(step: StepLike, inner: () => Promise<Responder>): Model {
+export function steppedModel(step: StepLike, inner: () => Promise<Responder>, scope = "model"): Model {
+  const nextId = stepIds(scope);
   return {
     async getResponse(request) {
-      const done = await step.run("model", () => traced(inner, request));
+      const done = await step.run(nextId(), () => traced(inner, request));
       return restore(done);
     },
     getStreamedResponse: neverStreams,
@@ -99,10 +105,11 @@ function neverStreams(): never {
   throw new Error("streaming is never used");
 }
 
-function scriptedModel(step: StepLike): Model {
+function scriptedModel(step: StepLike, scope: string): Model {
+  const nextId = stepIds(scope);
   return {
     async getResponse(request) {
-      const output = await step.run("model", async () => (hasToolResults(request) ? sayDone(request) : callBoth()));
+      const output = await step.run(nextId(), async () => (hasToolResults(request) ? sayDone(request) : callBoth()));
       return { output, usage: new Usage() };
     },
     getStreamedResponse: neverStreams,

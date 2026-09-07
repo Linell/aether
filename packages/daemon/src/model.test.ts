@@ -47,6 +47,18 @@ test("scripted model asks for two shell calls, then reports their output", async
   expect(() => model.getStreamedResponse(request("hi"))).toThrow("never used");
 });
 
+test("model steps get distinct ids per call and per scope", async () => {
+  const ids: string[] = [];
+  const recording: StepLike = { run: (id, fn) => (ids.push(id), fn()) };
+  const spec = { provider: "scripted", name: "scripted" } as const;
+  const turn = modelFor(spec, recording);
+  const memory = modelFor(spec, recording, "memory");
+  await turn.getResponse(request("hi"));
+  await turn.getResponse(request("hi"));
+  await memory.getResponse(request("hi"));
+  expect(ids).toEqual(["model-1", "model-2", "memory-1"]);
+});
+
 const queued: (() => void)[] = [];
 const drain = setInterval(() => queued.splice(0).forEach((fn) => fn()), 1);
 const detached: StepLike = { run: (_id, fn) => new Promise((resolve, reject) => queued.push(() => fn().then(resolve, reject))) };

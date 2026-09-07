@@ -17,7 +17,6 @@ interface Seen {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "aether-turn-"));
-const passthrough: StepLike = { run: (_id, fn) => fn() };
 const now = new Date("2026-09-06T07:00:00Z");
 
 function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
@@ -59,12 +58,13 @@ function fakeClient(opts: { allowed?: boolean; approval?: Approval } = {}) {
   return { client, seen };
 }
 
-function ctx(client: AetherClient, runId = "run-1", resolved: Daemon[] = []): TurnContext {
-  const resolveModel = (doc: Daemon) => {
+function ctx(client: AetherClient, runId = "run-1", resolved: Daemon[] = [], ids: string[] = []): TurnContext {
+  const step: StepLike = { run: (id, fn) => (ids.push(id), fn()) };
+  const resolveModel = (doc: Daemon, scope?: string) => {
     resolved.push(doc);
-    return modelFor({ provider: "scripted", name: "scripted" }, passthrough);
+    return modelFor({ provider: "scripted", name: "scripted" }, step, scope);
   };
-  return { daemon: "foo", runId, client, resolveModel, tools: [shell], step: passthrough, maxTurns: 10, now: () => now };
+  return { daemon: "foo", runId, client, resolveModel, tools: [shell], step, maxTurns: 10, now: () => now };
 }
 
 const message = { name: Events.MessageSent, data: { daemon: "foo", thread: "t1", message: "m1", text: "hello" } };
@@ -79,9 +79,11 @@ describe("runTurn", () => {
   test("allowed calls run and the reply carries their output", async () => {
     const { client, seen } = fakeClient({ allowed: true });
     const resolved: Daemon[] = [];
-    const result = await runTurn(ctx(client, "run-1", resolved), message);
+    const ids: string[] = [];
+    const result = await runTurn(ctx(client, "run-1", resolved, ids), message);
     expect(result).toEqual({ status: "replied", reply: "done: alpha, beta" });
-    expect(resolved.map((d) => d.model)).toEqual(["scripted"]);
+    expect(resolved.map((d) => d.model)).toEqual(["scripted", "scripted"]);
+    expect(ids).toEqual(["load", "model-1", "match:call_a", "match:call_b", "exec:call_a", "exec:call_b", "model-2", "reply", "memory-1", "put-memory"]);
     expect(seen.claims).toEqual(["call_a", "call_b"]);
     expect(seen.replies).toEqual([{ thread: "t1", text: "done: alpha, beta", id: "run-1:reply" }]);
     expect(seen.memory).toHaveLength(1);
