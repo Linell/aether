@@ -45,9 +45,9 @@ export function modelFor(spec: ModelSpec, step: StepLike, scope = "model"): Mode
   return steppedModel(step, providerModel(spec), scope);
 }
 
-function stepIds(scope: string): () => string {
-  let n = 0;
-  return () => `${scope}-${++n}`;
+function stepId(scope: string, request: ModelRequest): string {
+  const n = typeof request.input === "string" ? 0 : request.input.length;
+  return `${scope}:${n}`;
 }
 
 export interface Responder {
@@ -76,10 +76,9 @@ interface Memoized {
 }
 
 export function steppedModel(step: StepLike, inner: () => Promise<Responder>, scope = "model"): Model {
-  const nextId = stepIds(scope);
   return {
     async getResponse(request) {
-      const done = await step.run(nextId(), () => traced(inner, request));
+      const done = await step.run(stepId(scope, request), () => traced(inner, request));
       return restore(done);
     },
     getStreamedResponse: neverStreams,
@@ -107,10 +106,9 @@ function neverStreams(): never {
 }
 
 function scriptedModel(step: StepLike, scope: string): Model {
-  const nextId = stepIds(scope);
   return {
     async getResponse(request) {
-      const output = await step.run(nextId(), async () => (hasToolResults(request) ? sayDone(request) : callBoth()));
+      const output = await step.run(stepId(scope, request), async () => (hasToolResults(request) ? sayDone(request) : callBoth()));
       return { output, usage: new Usage() };
     },
     getStreamedResponse: neverStreams,

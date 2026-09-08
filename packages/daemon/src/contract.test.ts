@@ -45,9 +45,8 @@ const samples: Record<EventName, Record<string, unknown>> = {
   [Events.ApprovalAnswered]: {
     daemon: "foo",
     thread: "t1",
-    call: "c1",
-    approval: "a1",
-    decision: "approved",
+    group: "g1",
+    decisions: [{ call: "c1", approval: "a1", decision: "approved" }],
   } satisfies ApprovalAnsweredPayload,
   [Events.MessageReplied]: {
     daemon: "foo",

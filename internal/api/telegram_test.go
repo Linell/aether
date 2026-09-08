@@ -65,13 +65,13 @@ func TestWebhookTextBindsChatAndDedupes(t *testing.T) {
 
 func TestWebhookCallbackAnswersApproval(t *testing.T) {
 	s, post := telegramServer(t)
-	storetest.Exec(t, s.store, `INSERT INTO approvals (id, thread_id, call_id, tool, args, context) VALUES ('a1', 't1', 'c1', 'shell', '{}', '{}')`)
-	cb := `{"update_id":20,"callback_query":{"id":"q1","data":"approve:a1","message":{"message_id":5,"chat":{"id":42}}}}`
+	seedGroup(t, s.store, "g1", "c1")
+	cb := `{"update_id":20,"callback_query":{"id":"q1","data":"approve:a:c1","message":{"message_id":5,"chat":{"id":42}}}}`
 	if rec := post(cb); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"approved"`) {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 	post(cb)
-	post(`{"update_id":21,"callback_query":{"id":"q2","data":"deny:a1"}}`)
+	post(`{"update_id":21,"callback_query":{"id":"q2","data":"deny:a:c1"}}`)
 	if n := storetest.Count(t, s.store, `SELECT COUNT(1) FROM outbox WHERE event_name = 'aether/approval.answered'`); n != 1 {
 		t.Errorf("approval.answered events = %d, want 1", n)
 	}

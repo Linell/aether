@@ -1,4 +1,4 @@
-import type { ToolCall } from "./contract";
+import type { Decision, ToolCall } from "./contract";
 
 export interface VersionedDocument {
   content: string;
@@ -19,7 +19,15 @@ export interface Schedule {
 
 export type ScheduleInput = Omit<Schedule, "id" | "daemon" | "next_run_at">;
 
-export type MarkerKind = "schedule.stale" | "turn.failed" | "turn.paused" | "memory.conflict";
+export type MarkerKind =
+  | "schedule.stale"
+  | "turn.failed"
+  | "turn.paused"
+  | "turn.incomplete"
+  | "turn.empty"
+  | "memory.conflict"
+  | "memory.failed"
+  | "approval.ignored";
 
 export interface Marker {
   id: string;
@@ -63,7 +71,21 @@ export interface Approval {
   thread: string;
   status: "pending" | "approved" | "denied";
   call: ToolCall;
-  state?: string;
+  group?: string;
+  remaining: number;
+}
+
+export interface ApprovalGroup {
+  id: string;
+  thread: string;
+  status: "pending" | "decided";
+  state: string;
+  decisions: Decision[];
+}
+
+export interface Paused {
+  group: string;
+  approvals: string[];
 }
 
 export interface MatchResult {
@@ -87,11 +109,12 @@ export class AetherHttpError extends Error {
 export interface AetherClient {
   reply(thread: string, text: string, id?: string): Promise<void>;
   putMarker(daemon: string, marker: Marker): Promise<void>;
-  requestApproval(thread: string, calls: ToolCall[], state: string): Promise<{ approval: string; approvals: string[] }>;
+  requestApproval(thread: string, calls: ToolCall[], state: string, run: string): Promise<Paused>;
   getThread(id: string): Promise<Thread>;
   listMessages(thread: string, query?: HistoryQuery): Promise<Message[]>;
   getDaemon(name: string): Promise<Daemon>;
   getApproval(id: string): Promise<Approval>;
+  getApprovalGroup(id: string): Promise<ApprovalGroup>;
   matchCall(daemon: string, thread: string, call: ToolCall): Promise<MatchResult>;
   claimOperation(id: string, kind: string): Promise<boolean>;
   getSoul(daemon: string): Promise<VersionedDocument>;
@@ -130,7 +153,7 @@ export function createClient(options: CreateClientOptions): AetherClient {
     async putMarker(daemon, marker) {
       await request("POST", `/daemons/${daemon}/markers`, marker);
     },
-    requestApproval: (thread, calls, state) => request("POST", `/threads/${thread}/approvals`, { calls, state }),
+    requestApproval: (thread, calls, state, run) => request("POST", `/threads/${thread}/approvals`, { calls, state, run }),
     getThread: (id) => request("GET", `/threads/${id}`),
     async listMessages(thread, query = {}) {
       const res = await request<{ messages: Message[] }>("GET", `/threads/${thread}/messages${historyParams(query)}`);
@@ -138,6 +161,7 @@ export function createClient(options: CreateClientOptions): AetherClient {
     },
     getDaemon: (name) => request("GET", `/daemons/${name}`),
     getApproval: (id) => request("GET", `/approvals/${id}`),
+    getApprovalGroup: (id) => request("GET", `/approvals/groups/${id}`),
     matchCall: (daemon, thread, call) => request("POST", `/daemons/${daemon}/allowlist/match`, { thread, call }),
     async claimOperation(id, kind) {
       const res = await request<{ claimed: boolean }>("POST", "/operations", { id, kind });

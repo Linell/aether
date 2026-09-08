@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { Inngest, NonRetriableError } from "inngest";
 import { Events } from "./contract";
-import type { ModelRequest } from "@openai/agents";
+import { Usage, type ModelRequest } from "@openai/agents";
 import { appId, buildFunctions, defineDaemon, maxTurnsFrom, modelResolver, threadOf, turnConfig, turnEventOf } from "./runtime";
 import { createClient, type Daemon } from "./client";
-import { modelFor } from "./model";
+import type { Responder } from "./model";
 import type { StepLike } from "./turn";
 
 const step: StepLike = { run: (_id, fn) => fn() };
@@ -17,10 +17,14 @@ test("the daemon doc's model wins over AETHER_MODEL", async () => {
   expect(res.output.map((o) => o.type)).toEqual(["function_call", "function_call"]);
 });
 
-test("defineDaemon({ model }) wins over the daemon doc", () => {
-  const model = modelFor({ provider: "scripted", name: "scripted" }, step);
-  const resolve = modelResolver(defineDaemon({ name: "foo", model }), step, {});
-  expect(resolve({ ...doc, model: "anthropic:claude-sonnet-5" })).toBe(model);
+test("defineDaemon({ model }) wins over the daemon doc and runs inside a step", async () => {
+  const ids: string[] = [];
+  const recording: StepLike = { run: (id, fn) => (ids.push(id), fn()) };
+  const model: Responder = { getResponse: async () => ({ output: [], usage: new Usage() }) };
+  const resolve = modelResolver(defineDaemon({ name: "foo", model }), recording, {});
+  const res = await resolve({ ...doc, model: "anthropic:claude-sonnet-5" }, "memory").getResponse(request);
+  expect(res.output).toEqual([]);
+  expect(ids).toEqual(["memory:0"]);
 });
 
 test("turn filters all triggers on the daemon, serializes per thread, and retries five times", () => {

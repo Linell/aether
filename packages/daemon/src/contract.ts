@@ -39,12 +39,17 @@ export interface ScheduleFiredPayload {
   prompt: string;
 }
 
-export interface ApprovalAnsweredPayload {
-  daemon: string;
-  thread: string;
+export interface Decision {
   call: string;
   approval: string;
   decision: "approved" | "denied";
+}
+
+export interface ApprovalAnsweredPayload {
+  daemon: string;
+  thread: string;
+  group: string;
+  decisions: Decision[];
 }
 
 export interface MessageRepliedPayload {

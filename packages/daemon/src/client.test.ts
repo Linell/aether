@@ -38,11 +38,25 @@ test("requestApproval posts calls with the paused run state", async () => {
   let body = "";
   const client = clientWith((_url, init) => {
     body = String(init.body);
-    return new Response(JSON.stringify({ approval: "a1", approvals: ["a1"] }), { status: 200 });
+    return new Response(JSON.stringify({ group: "g1", approvals: ["a1"] }), { status: 200 });
   });
 
   const call = { id: "c1", tool: "shell", args: { argv: ["ls"] }, context: { cwd: "/w", host: "h" } };
-  await client.requestApproval("t1", [call], "state-blob");
+  const paused = await client.requestApproval("t1", [call], "state-blob", "run-1");
 
-  expect(JSON.parse(body)).toEqual({ calls: [call], state: "state-blob" });
+  expect(JSON.parse(body)).toEqual({ calls: [call], state: "state-blob", run: "run-1" });
+  expect(paused).toEqual({ group: "g1", approvals: ["a1"] });
+});
+
+test("getApprovalGroup reads the group document", async () => {
+  let url = "";
+  const client = clientWith((input) => {
+    url = String(input);
+    return new Response(JSON.stringify({ id: "g1", thread: "t1", status: "decided", state: "s", decisions: [] }), { status: 200 });
+  });
+
+  const group = await client.getApprovalGroup("g1");
+
+  expect(url).toBe("http://example.test/v1/approvals/groups/g1");
+  expect(group.status).toBe("decided");
 });

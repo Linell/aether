@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -161,10 +162,17 @@ func (s *server) telegramCallback(ctx context.Context, u telegram.Update) (appro
 	return doc, err
 }
 
+func ackText(doc approvalDoc) string {
+	if doc.Remaining == 0 {
+		return doc.Status
+	}
+	return fmt.Sprintf("%s, %d more pending", doc.Status, doc.Remaining)
+}
+
 func (s *server) acknowledgeCallback(cb *telegram.CallbackQuery, doc approvalDoc) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.telegram.Client.AnswerCallback(ctx, cb.ID, doc.Status); err != nil {
+	if err := s.telegram.Client.AnswerCallback(ctx, cb.ID, ackText(doc)); err != nil {
 		log.Printf("telegram: answer callback: %v", err)
 	}
 	if cb.Message == nil {

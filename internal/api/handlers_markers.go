@@ -9,7 +9,7 @@ import (
 	"github.com/linell/aether/internal/store"
 )
 
-var markerKinds = []string{"schedule.stale", "turn.failed", "turn.paused", "memory.conflict"}
+var markerKinds = []string{"schedule.stale", "turn.failed", "turn.paused", "turn.incomplete", "turn.empty", "memory.conflict", "memory.failed", "approval.ignored"}
 
 type markerBody struct {
 	ID     string `json:"id"`

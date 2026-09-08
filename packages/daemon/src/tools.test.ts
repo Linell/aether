@@ -24,6 +24,7 @@ function fakeClient(fake: Fake): AetherClient {
     listMessages: unused,
     getDaemon: unused,
     getApproval: unused,
+    getApprovalGroup: unused,
     async matchCall(_daemon, _thread, call) {
       fake.matched.push(call);
       return { allowed: fake.allowed };

@@ -40,22 +40,21 @@ func (s *server) listMessages(ctx context.Context, threadID, before string, limi
 	if before == "" {
 		return store.Query(ctx, db, scanMessage, historyQuery(""), threadID, limit)
 	}
-	at, err := cursorAt(ctx, db, threadID, before)
-	if err != nil {
+	if err := checkCursor(ctx, db, threadID, before); err != nil {
 		return nil, err
 	}
-	return store.Query(ctx, db, scanMessage, historyQuery(`AND (created_at, id) < (?, ?)`), threadID, at, before, limit)
+	return store.Query(ctx, db, scanMessage, historyQuery(`AND id != ?`), threadID, before, limit)
 }
 
-func cursorAt(ctx context.Context, q store.DBTX, threadID, id string) (string, error) {
-	var thread, at string
-	if err := lookup(ctx, q, `SELECT thread_id, created_at FROM messages WHERE id = ?`, id, &thread, &at); err != nil {
-		return "", err
+func checkCursor(ctx context.Context, q store.DBTX, threadID, id string) error {
+	var thread string
+	if err := lookup(ctx, q, `SELECT thread_id FROM messages WHERE id = ?`, id, &thread); err != nil {
+		return err
 	}
 	if thread != threadID {
-		return "", errNotFound
+		return errNotFound
 	}
-	return at, nil
+	return nil
 }
 
 func historyQuery(cursor string) string {

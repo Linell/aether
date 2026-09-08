@@ -45,12 +45,17 @@ type ScheduleFiredPayload struct {
 	Prompt     string    `json:"prompt"`
 }
 
-type ApprovalAnsweredPayload struct {
-	Daemon   string `json:"daemon"`
-	Thread   string `json:"thread"`
+type Decision struct {
 	Call     string `json:"call"`
 	Approval string `json:"approval"`
 	Decision string `json:"decision"`
+}
+
+type ApprovalAnsweredPayload struct {
+	Daemon    string     `json:"daemon"`
+	Thread    string     `json:"thread"`
+	Group     string     `json:"group"`
+	Decisions []Decision `json:"decisions"`
 }
 
 type MessageRepliedPayload struct {

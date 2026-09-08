@@ -3,7 +3,7 @@ import { z } from "zod";
 import { connect, type WorkerConnection } from "inngest/connect";
 import { createClient, type AetherClient, type Daemon } from "./client";
 import { Events, TurnConcurrency } from "./contract";
-import { modelFor, modelSpecFor, type Model } from "./model";
+import { modelFor, modelSpecFor, steppedModel, type Model, type Responder } from "./model";
 import { scheduleDelete, scheduleList, schedulePut } from "./schedules";
 import { editFile, readFile, writeFile } from "./files";
 import { shell, type ToolFactory, type ToolSource } from "./tools";
@@ -11,13 +11,13 @@ import { mark, runTurn, type StepLike, type TurnContext, type TurnEvent } from "
 
 export interface DefineDaemonOptions {
   name: string;
-  model?: Model;
+  model?: Model | Responder;
   tools?: ToolSource[];
 }
 
 export interface DefinedDaemon {
   name: string;
-  model?: Model;
+  model?: Responder;
   tools: ToolSource[];
   _brand: "aether-daemon";
 }
@@ -28,10 +28,12 @@ export const DefaultTools: ToolFactory[] = [shell, readFile, editFile, writeFile
 
 const Ids = { daemon: z.string(), thread: z.string() };
 
+const Decision = z.object({ call: z.string(), approval: z.string(), decision: z.enum(["approved", "denied"]) });
+
 const TurnPayload = z.union([
   z.object({ ...Ids, message: z.string(), text: z.string() }),
   z.object({ ...Ids, schedule: z.string(), due_at: z.string(), deadline_at: z.string(), prompt: z.string() }),
-  z.object({ ...Ids, call: z.string(), approval: z.string(), decision: z.enum(["approved", "denied"]) }),
+  z.object({ ...Ids, group: z.string(), decisions: z.array(Decision) }),
 ]);
 
 export function turnEventOf(event: { name: string; data?: unknown }): TurnEvent {
@@ -77,7 +79,9 @@ export function turnConfig(name: string) {
 }
 
 export function modelResolver(daemon: DefinedDaemon, step: StepLike, env: Record<string, string | undefined>): (doc: Daemon, scope?: string) => Model {
-  return (doc, scope) => daemon.model ?? modelFor(modelSpecFor(doc, env), step, scope);
+  const inner = daemon.model;
+  if (inner === undefined) return (doc, scope) => modelFor(modelSpecFor(doc, env), step, scope);
+  return (_doc, scope) => steppedModel(step, async () => inner, scope);
 }
 
 function contextFor(daemon: DefinedDaemon, client: AetherClient, runId: string, step: StepLike, env: Record<string, string | undefined>): TurnContext {

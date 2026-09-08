@@ -4,7 +4,7 @@
   "events": {
     "aether/message.sent":        { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "message", "text"] },
     "aether/schedule.fired":      { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "schedule", "due_at", "deadline_at", "prompt"] },
-    "aether/approval.answered":   { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "call", "approval", "decision"] },
+    "aether/approval.answered":   { "from": "aether", "to": "daemon", "fields": ["daemon", "thread", "group", "decisions"] },
     "daemon/message.replied":     { "from": "daemon", "to": "aether", "fields": ["daemon", "thread", "reply", "text"] },
     "daemon/approval.requested":  { "from": "daemon", "to": "aether", "fields": ["daemon", "thread", "calls"] },
     "daemon/conjure.requested":   { "from": "aether", "to": "host",   "fields": ["daemon", "host", "language"] },

@@ -47,16 +47,18 @@ test("scripted model asks for two shell calls, then reports their output", async
   expect(() => model.getStreamedResponse(request("hi"))).toThrow("never used");
 });
 
-test("model steps get distinct ids per call and per scope", async () => {
+test("model step ids derive from the input length and scope, so replays repeat them", async () => {
   const ids: string[] = [];
   const recording: StepLike = { run: (id, fn) => (ids.push(id), fn()) };
   const spec = { provider: "scripted", name: "scripted" } as const;
   const turn = modelFor(spec, recording);
   const memory = modelFor(spec, recording, "memory");
+  const user = { type: "message", role: "user", content: "hi" } as const;
   await turn.getResponse(request("hi"));
-  await turn.getResponse(request("hi"));
-  await memory.getResponse(request("hi"));
-  expect(ids).toEqual(["model-1", "model-2", "memory-1"]);
+  await turn.getResponse(request([user, user]));
+  await turn.getResponse(request([user, user]));
+  await memory.getResponse(request([user]));
+  expect(ids).toEqual(["model:0", "model:2", "model:2", "memory:1"]);
 });
 
 const queued: (() => void)[] = [];

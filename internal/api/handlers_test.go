@@ -208,11 +208,14 @@ func TestCreateMarkerRejectsUnknownKind(t *testing.T) {
 	if rec := call(s.handleCreateMarker, http.MethodPost, `{"kind":"made.up","ref":"x"}`, path); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
-	if rec := call(s.handleCreateMarker, http.MethodPost, `{"kind":"schedule.stale","thread":"t1","ref":"s1","detail":"{}"}`, path); rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	for _, kind := range []string{"schedule.stale", "turn.incomplete", "turn.empty", "memory.failed"} {
+		body := fmt.Sprintf(`{"kind":%q,"thread":"t1","ref":"s1","detail":"{}"}`, kind)
+		if rec := call(s.handleCreateMarker, http.MethodPost, body, path); rec.Code != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200: %s", kind, rec.Code, rec.Body.String())
+		}
 	}
-	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM markers WHERE kind = 'schedule.stale'`); n != 1 {
-		t.Errorf("markers = %d, want 1", n)
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM markers`); n != 4 {
+		t.Errorf("markers = %d, want 4", n)
 	}
 }
 
@@ -249,11 +252,19 @@ func TestSchedulePutRejectsForeignThreadAndKeepsPrompt(t *testing.T) {
 	}
 }
 
+func seedGroup(t *testing.T, st *store.Store, group string, calls ...string) {
+	t.Helper()
+	storetest.Exec(t, st, `INSERT INTO approval_groups (id, thread_id, run_id, state) VALUES (?, 't1', ?, 'blob')`, group, "run-"+group)
+	for _, call := range calls {
+		storetest.Exec(t, st, `INSERT INTO approvals (id, thread_id, call_id, tool, args, context, group_id) VALUES (?, 't1', ?, 'shell', '{}', '{}', ?)`, "a:"+call, call, group)
+	}
+}
+
 func TestAnswerApprovalOnce(t *testing.T) {
 	s, st := newTestServer(t)
 	seedThread(t, st, "anchored")
-	storetest.Exec(t, st, `INSERT INTO approvals (id, thread_id, call_id, tool, args, context) VALUES ('a1', 't1', 'c1', 'shell', '{}', '{}')`)
-	path := map[string]string{"id": "a1"}
+	seedGroup(t, st, "g1", "c1")
+	path := map[string]string{"id": "a:c1"}
 
 	var first, second struct{ Status string }
 	decode(t, call(s.handleAnswerApproval, http.MethodPost, `{"decision":"approved"}`, path), &first)
@@ -306,32 +317,72 @@ func TestClaimOperationOnce(t *testing.T) {
 func TestApprovalsRequestDedupesEvent(t *testing.T) {
 	s, st := newTestServer(t)
 	seedThread(t, st, "anchored")
-	body := `{"calls":[{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}],"state":"s1"}`
-	var first, second struct{ Approval string }
+	body := `{"run":"r1","state":"s1","calls":[{"id":"c1","tool":"shell","args":{"argv":["rm"]},"context":{"cwd":"/tmp","host":"host-1"}}]}`
+	var first, second pauseDoc
 	decode(t, call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"}), &first)
-	decode(t, call(s.handleThreadApprovals, http.MethodPost, strings.Replace(body, "s1", "s2", 1), map[string]string{"id": "t1"}), &second)
-	if first.Approval != second.Approval {
-		t.Errorf("approval ids = %q, %q; want equal", first.Approval, second.Approval)
+	decode(t, call(s.handleThreadApprovals, http.MethodPost, body, map[string]string{"id": "t1"}), &second)
+	if first.Group == "" || first.Group != second.Group || len(first.Approvals) != 1 || first.Approvals[0] != second.Approvals[0] {
+		t.Errorf("pauses = %+v, %+v; want one group and one approval", first, second)
 	}
 	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'daemon/approval.requested'`); n != 1 {
 		t.Errorf("outbox count = %d, want 1", n)
 	}
-	var doc approvalDoc
-	decode(t, call(s.handleGetApproval, http.MethodGet, "", map[string]string{"id": first.Approval}), &doc)
-	if doc.State != "s2" {
-		t.Errorf("state = %q, want s2", doc.State)
+	var doc groupDoc
+	decode(t, call(s.handleGetApprovalGroup, http.MethodGet, "", map[string]string{"id": first.Group}), &doc)
+	if doc.Status != "pending" || doc.State != "s1" || len(doc.Decisions) != 0 {
+		t.Errorf("group = %+v, want pending with state s1", doc)
+	}
+	if rec := call(s.handleThreadApprovals, http.MethodPost, strings.Replace(body, `"run":"r1",`, "", 1), map[string]string{"id": "t1"}); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 without run", rec.Code)
 	}
 }
 
-func TestListMessagesNewestFirstBeforeCursorAndLimit(t *testing.T) {
+func TestApprovalGroupAnswersOnce(t *testing.T) {
 	s, st := newTestServer(t)
 	seedThread(t, st, "anchored")
-	for i, m := range []string{"m1:user:a", "m2:assistant:b", "m3:user:c", "m4:assistant:d"} {
+	seedGroup(t, st, "g1", "c1", "c2")
+	events := func() int {
+		return storetest.Count(t, st, `SELECT COUNT(1) FROM outbox WHERE event_name = 'aether/approval.answered'`)
+	}
+
+	var first approvalDoc
+	decode(t, call(s.handleAnswerApproval, http.MethodPost, `{"decision":"approved"}`, map[string]string{"id": "a:c1"}), &first)
+	if first.Remaining != 1 || events() != 0 {
+		t.Fatalf("remaining = %d, events = %d; want 1, 0", first.Remaining, events())
+	}
+	var second approvalDoc
+	decode(t, call(s.handleAnswerApproval, http.MethodPost, `{"decision":"denied"}`, map[string]string{"id": "a:c2"}), &second)
+	if second.Remaining != 0 || events() != 1 {
+		t.Fatalf("remaining = %d, events = %d; want 0, 1", second.Remaining, events())
+	}
+	var payload string
+	if err := st.DB().QueryRow(`SELECT payload FROM outbox WHERE event_name = 'aether/approval.answered'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"group":"g1"`, `{"call":"c1","approval":"a:c1","decision":"approved"}`, `{"call":"c2","approval":"a:c2","decision":"denied"}`} {
+		if !strings.Contains(payload, want) {
+			t.Errorf("payload %s lacks %s", payload, want)
+		}
+	}
+	var doc groupDoc
+	decode(t, call(s.handleGetApprovalGroup, http.MethodGet, "", map[string]string{"id": "g1"}), &doc)
+	if doc.Status != "decided" || len(doc.Decisions) != 2 {
+		t.Errorf("group = %+v, want decided with two decisions", doc)
+	}
+}
+
+func seedMessages(t *testing.T, st *store.Store, specs ...string) {
+	t.Helper()
+	for i, m := range specs {
 		p := strings.Split(m, ":")
 		storetest.Exec(t, st, `INSERT INTO messages (id, thread_id, role, text, created_at) VALUES (?, 't1', ?, ?, ?)`,
 			p[0], p[1], p[2], fmt.Sprintf("2026-09-06T07:00:0%d.000Z", i))
 	}
-	req := httptest.NewRequest(http.MethodGet, "/?before=m4&limit=2", nil)
+}
+
+func listMessageIDs(t *testing.T, s *server, query string) (*httptest.ResponseRecorder, []string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/"+query, nil)
 	req.SetPathValue("id", "t1")
 	rec := httptest.NewRecorder()
 	s.handleListMessages(rec, req)
@@ -343,14 +394,43 @@ func TestListMessagesNewestFirstBeforeCursorAndLimit(t *testing.T) {
 	for _, m := range resp.Messages {
 		got = append(got, m.ID+":"+m.Role)
 	}
+	return rec, got
+}
+
+func TestListMessagesNewestFirstBeforeCursorAndLimit(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	seedMessages(t, st, "m1:user:a", "m2:assistant:b", "m3:user:c", "m4:assistant:d")
+	_, got := listMessageIDs(t, s, "?before=m4&limit=2")
 	if want := []string{"m3:user", "m2:assistant"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("messages = %v, want %v", got, want)
 	}
-	req = httptest.NewRequest(http.MethodGet, "/?before=missing", nil)
-	req.SetPathValue("id", "t1")
-	rec = httptest.NewRecorder()
-	s.handleListMessages(rec, req)
+	rec, _ := listMessageIDs(t, s, "?before=missing")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("unknown cursor status = %d, want 404", rec.Code)
+	}
+}
+
+func TestListMessagesBeforeIncludesLaterReplyToEarlierMessage(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	seedMessages(t, st, "a:user:first", "b:user:second", "ra:assistant:reply to first")
+	_, got := listMessageIDs(t, s, "?before=b")
+	if want := []string{"ra:assistant", "a:user"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("messages = %v, want %v", got, want)
+	}
+}
+
+func TestReplyRejectsBlankText(t *testing.T) {
+	s, st := newTestServer(t)
+	seedThread(t, st, "anchored")
+	for _, body := range []string{`{"text":""}`, `{"text":"  \n"}`} {
+		rec := call(s.handleThreadReply, http.MethodPost, body, map[string]string{"id": "t1"})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400", body, rec.Code)
+		}
+	}
+	if n := storetest.Count(t, st, `SELECT COUNT(1) FROM messages`); n != 0 {
+		t.Errorf("messages count = %d, want 0", n)
 	}
 }

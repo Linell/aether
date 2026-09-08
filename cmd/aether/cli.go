@@ -128,8 +128,9 @@ func answer(args []string, decision string) error {
 		return err
 	}
 	var doc struct {
-		Status string `json:"status"`
-		Call   struct {
+		Status    string `json:"status"`
+		Remaining int    `json:"remaining"`
+		Call      struct {
 			Tool string `json:"tool"`
 		} `json:"call"`
 	}
@@ -138,5 +139,8 @@ func answer(args []string, decision string) error {
 		return err
 	}
 	fmt.Printf("approval %s is %s (%s)\n", id, doc.Status, doc.Call.Tool)
+	if doc.Remaining > 0 {
+		fmt.Printf("%d more pending in this pause\n", doc.Remaining)
+	}
 	return nil
 }
